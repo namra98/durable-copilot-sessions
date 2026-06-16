@@ -48,17 +48,12 @@ export const defaultExec: TaskExec = {
 };
 
 /**
- * Wrap a command line so `schtasks /TR` treats it as a single value. The command
- * (which may itself contain spaces and its own arguments) is surrounded by
- * double quotes inside the argument value.
- */
-function quoteCommand(command: string): string {
-  return `"${command}"`;
-}
-
-/**
  * Build the `schtasks` arguments for the periodic auto-snapshot task that runs
  * `<command>` every `intervalMinutes` minutes. Pure: returns args only.
+ *
+ * `command` is passed to `/TR` verbatim: callers already quote the inner
+ * executable/script paths, and `spawnSync` passes it as one argv element, so
+ * wrapping it again would prepend an empty `""` token and break the action.
  */
 export function buildCreateSnapshotArgs(opts: {
   command: string;
@@ -75,7 +70,7 @@ export function buildCreateSnapshotArgs(opts: {
     "/MO",
     String(opts.intervalMinutes),
     "/TR",
-    quoteCommand(opts.command),
+    opts.command,
     "/RL",
     "LIMITED",
     "/F",
@@ -98,7 +93,7 @@ export function buildCreateLogonArgs(opts: {
     "/SC",
     "ONLOGON",
     "/TR",
-    quoteCommand(opts.command),
+    opts.command,
     "/RL",
     "LIMITED",
     "/F",

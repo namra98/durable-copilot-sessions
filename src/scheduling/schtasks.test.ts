@@ -52,10 +52,11 @@ describe("buildCreateSnapshotArgs", () => {
     expect(args).toContain("/TR");
     expect(args).toContain("/F");
 
-    // The command is the value immediately after /TR, quoted as a single value.
+    // The command is the value immediately after /TR, passed verbatim (the
+    // caller already quotes inner paths; double-wrapping would break the action).
     const trIndex = args.indexOf("/TR");
-    expect(args[trIndex + 1]).toContain("X snapshot");
-    expect(args[trIndex + 1]).toBe('"X snapshot"');
+    expect(args[trIndex + 1]).toBe("X snapshot");
+    expect(args[trIndex + 1]).not.toMatch(/^"/);
   });
 
   it("honors a custom task name", () => {
@@ -81,7 +82,7 @@ describe("buildCreateLogonArgs", () => {
     expect(args).toContain("/F");
 
     const trIndex = args.indexOf("/TR");
-    expect(args[trIndex + 1]).toBe('"X restore-prompt"');
+    expect(args[trIndex + 1]).toBe("X restore-prompt");
   });
 });
 

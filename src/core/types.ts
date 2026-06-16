@@ -171,6 +171,8 @@ export interface ResumeOptions {
   title?: string;
   color?: TabColor;
   cwd?: string;
+  /** Ordered fallback directories used when `cwd` no longer exists. */
+  fallbacks?: string[];
   window?: WindowTarget;
   copilotArgs?: string[];
   /** When true, build the command but do not execute wt.exe. */

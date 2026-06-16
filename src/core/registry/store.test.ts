@@ -255,3 +255,15 @@ describe("registry store", () => {
     expect(r.latestSnapshot()).toBeUndefined();
   });
 });
+
+describe("id safety (review fix)", () => {
+  it("rejects path-traversal ids on read/delete and throws on unsafe write", () => {
+    const dirs = tempDirs();
+    const r = createRegistry(dirs);
+    expect(r.getWorkspace("../../evil")).toBeUndefined();
+    expect(r.getManaged("..\\..\\evil")).toBeUndefined();
+    expect(() => r.deleteWorkspace("../../evil")).not.toThrow();
+    expect(() => r.upsertManaged({ sessionId: "../../evil", color: "#fff" })).toThrow();
+    fs.rmSync(dirs.base, { recursive: true, force: true });
+  });
+});

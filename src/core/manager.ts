@@ -108,7 +108,15 @@ export class SessionManager {
 
   /** Update tool-managed metadata for a session and return the merged view. */
   updateManaged(sessionId: string, patch: ManagedPatch): SessionView {
-    const updated = this.registry.upsertManaged({ sessionId, ...patch });
+    // Only accept known, well-typed fields — never let request bodies inject a
+    // different sessionId or arbitrary keys into the persisted record.
+    const clean: ManagedPatch = {};
+    if (typeof patch.title === "string") clean.title = patch.title;
+    if (typeof patch.color === "string") clean.color = patch.color;
+    if (typeof patch.group === "string") clean.group = patch.group;
+    if (typeof patch.pinned === "boolean") clean.pinned = patch.pinned;
+    if (typeof patch.hidden === "boolean") clean.hidden = patch.hidden;
+    const updated = this.registry.upsertManaged({ ...clean, sessionId });
     const discovered = this.getSessionFn(sessionId);
     if (discovered) {
       return this.toView(discovered, updated);
@@ -130,12 +138,16 @@ export class SessionManager {
     const managed = this.registry.getManaged(opts.sessionId);
     const discovered = this.getSessionFn(opts.sessionId);
     const cwd = opts.cwd ?? discovered?.cwd ?? os.homedir();
+    const fallbacks = [opts.fallbacks ?? [], discovered?.gitRoot ?? []]
+      .flat()
+      .filter((d): d is string => typeof d === "string" && d.length > 0);
     const title =
       opts.title ?? managed?.title ?? discovered?.name ?? opts.sessionId.slice(0, 8);
     const color = opts.color ?? managed?.color ?? "blue";
     return this.resumeFn({
       sessionId: opts.sessionId,
       cwd,
+      fallbacks,
       title,
       color,
       window: opts.window ?? "new",

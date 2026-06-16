@@ -116,4 +116,11 @@ describe("SessionManager", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("not found");
   });
+
+  it("updateManaged ignores a sessionId injected via the patch body", () => {
+    const { mgr, registry } = makeManager();
+    mgr.updateManaged("aaa", { color: "#111111", sessionId: "evil" } as never);
+    expect(registry.getManaged("aaa")?.color).toBe("#111111");
+    expect(registry.getManaged("evil")).toBeUndefined();
+  });
 });

@@ -105,6 +105,11 @@ export function createApp(manager: SessionManager): Express {
 
   app.use("/api", api);
 
+  // Unknown /api routes get a JSON 404 (not the SPA fallback below).
+  app.use("/api", (_req: Request, res: Response) => {
+    res.status(404).json({ error: "Not found" });
+  });
+
   // Serve the built web UI when it exists (production). __dirname = dist/server.
   const here = path.dirname(fileURLToPath(import.meta.url));
   const webDir = path.resolve(here, "../web");

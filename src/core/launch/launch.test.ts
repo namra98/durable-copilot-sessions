@@ -151,3 +151,24 @@ describe("launchWindows", () => {
     expect(result.tabsLaunched).toBe(2);
   });
 });
+
+describe("execution policy and cwd fallback (review fixes)", () => {
+  it("buildWindowArgs runs the script under -ExecutionPolicy Bypass -NoProfile", () => {
+    const tab: TabSpec = { sessionId: "s", title: "t", color: "green", cwd: "C:/x" };
+    const args = buildWindowArgs("new", [{ spec: tab, scriptPath: "C:/script.ps1" }]);
+    expect(args).toContain("-NoProfile");
+    expect(args).toContain("-ExecutionPolicy");
+    expect(args).toContain("Bypass");
+  });
+
+  it("resumeSession warns (not silent success) when the cwd does not exist", () => {
+    const missing = path.join(os.tmpdir(), `dcs-missing-${Date.now()}`);
+    const result = resumeSession(
+      { sessionId: "abc", cwd: missing, dryRun: true },
+      { scriptDir: tempScriptDir() },
+    );
+    expect(result.ok).toBe(true);
+    expect(result.warnings.length).toBeGreaterThan(0);
+    expect(result.warnings[0]).toContain("does not exist");
+  });
+});

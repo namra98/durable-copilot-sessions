@@ -9,7 +9,6 @@ import type {
 } from "../types.js";
 import { renderLaunchScript, writeLaunchScript } from "./script.js";
 import { buildWindowArgs, resolveLaunchCwd } from "./wt.js";
-
 /**
  * High-level entry points that turn launch specs into running Windows Terminal
  * windows. The actual process spawn is injectable so callers (and tests) can
@@ -50,11 +49,15 @@ function execErrorMessage(result: ExecResult): string {
  */
 export function resumeSession(opts: ResumeOptions, deps: LauncherDeps = {}): LaunchResult {
   const warnings: string[] = [];
+  const resolved = resolveLaunchCwd({ cwd: opts.cwd ?? os.homedir() }, opts.fallbacks ?? []);
+  if (resolved.warning) {
+    warnings.push(resolved.warning);
+  }
   const tab: TabSpec = {
     sessionId: opts.sessionId,
     title: opts.title ?? opts.sessionId.slice(0, 8),
     color: opts.color ?? "blue",
-    cwd: opts.cwd ?? os.homedir(),
+    cwd: resolved.cwd,
     copilotArgs: opts.copilotArgs,
   };
   const target: WindowTarget = opts.window ?? "new";

@@ -65,6 +65,22 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+/**
+ * Whether `id` is safe to use as a filename. Guards against path traversal from
+ * API-supplied ids (e.g. `..%2F..%2Fconfig` decoded by Express). UUIDs and the
+ * names this tool generates all satisfy this.
+ */
+function isSafeId(id: string): boolean {
+  return typeof id === "string" && /^[A-Za-z0-9_-]+$/.test(id);
+}
+
+/** Throw on an unsafe id used for a write path. */
+function assertSafeId(id: string): void {
+  if (!isSafeId(id)) {
+    throw new Error(`Invalid id: ${JSON.stringify(id)}`);
+  }
+}
+
 /** Read and parse a JSON file; returns undefined for missing/corrupt files. */
 function readJson<T>(file: string): T | undefined {
   try {
@@ -74,11 +90,15 @@ function readJson<T>(file: string): T | undefined {
   }
 }
 
-/** Atomically write JSON: write to a temp sibling, then rename over target. */
+/** Atomically write JSON: write to a unique temp sibling, then rename over target. */
 function writeJsonAtomic(file: string, data: unknown): void {
-  const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8");
-  fs.renameSync(tmp, file);
+  const tmp = `${file}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(tmp, JSON.stringify(data, null, 2), "utf8");
+    fs.renameSync(tmp, file);
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
 }
 
 /** Absolute paths of `*.json` files in `dir`; returns [] if `dir` is missing. */
@@ -104,12 +124,17 @@ export function createRegistry(dirs: RegistryDirs = {}): Registry {
     fs.mkdirSync(dir, { recursive: true });
   }
 
-  const managedFile = (sessionId: string): string =>
-    path.join(managedDir, `${sessionId}.json`);
-  const workspaceFile = (id: string): string =>
-    path.join(workspacesDir, `${id}.json`);
+  const managedFile = (sessionId: string): string => {
+    assertSafeId(sessionId);
+    return path.join(managedDir, `${sessionId}.json`);
+  };
+  const workspaceFile = (id: string): string => {
+    assertSafeId(id);
+    return path.join(workspacesDir, `${id}.json`);
+  };
 
   function getManaged(sessionId: string): ManagedSession | undefined {
+    if (!isSafeId(sessionId)) return undefined;
     return readJson<ManagedSession>(managedFile(sessionId));
   }
 
@@ -139,10 +164,12 @@ export function createRegistry(dirs: RegistryDirs = {}): Registry {
   }
 
   function deleteManaged(sessionId: string): void {
+    if (!isSafeId(sessionId)) return;
     fs.rmSync(managedFile(sessionId), { force: true });
   }
 
   function getWorkspace(id: string): Workspace | undefined {
+    if (!isSafeId(id)) return undefined;
     return readJson<Workspace>(workspaceFile(id));
   }
 
@@ -154,7 +181,7 @@ export function createRegistry(dirs: RegistryDirs = {}): Registry {
         out.push(rec);
       }
     }
-    out.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    out.sort((a, b) => (b.updatedAt ?? "").localeCompare(a.updatedAt ?? ""));
     return out;
   }
 
@@ -189,6 +216,7 @@ export function createRegistry(dirs: RegistryDirs = {}): Registry {
   }
 
   function deleteWorkspace(id: string): void {
+    if (!isSafeId(id)) return;
     fs.rmSync(workspaceFile(id), { force: true });
   }
 
@@ -205,7 +233,7 @@ export function createRegistry(dirs: RegistryDirs = {}): Registry {
   }
 
   function pruneSnapshots(retain: number): void {
-    const keep = Math.max(0, retain);
+    const keep = Number.isFinite(retain) ? Math.max(0, Math.floor(retain)) : 50;
     for (const file of snapshotFilesNewestFirst().slice(keep)) {
       fs.rmSync(file, { force: true });
     }
