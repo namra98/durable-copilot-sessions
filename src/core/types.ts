@@ -49,6 +49,10 @@ export interface DiscoveredSession {
    * child session). Used as the default filter for "save current layout".
    */
   topLevel: boolean;
+  /** Parent session id when created via fork/branch (workspace.yaml `branch_of`). */
+  branchOf?: string;
+  /** Free-text lineage note written at fork time (workspace.yaml `branch_note`). */
+  branchNote?: string;
 }
 
 /** A natural color name or #RRGGBB / RRGGBB hex string for a Windows Terminal tab. */
@@ -178,3 +182,84 @@ export interface ResumeOptions {
   /** When true, build the command but do not execute wt.exe. */
   dryRun?: boolean;
 }
+
+/* ------------------------------------------------------------------ *
+ * Session graph (canvas) model
+ * ------------------------------------------------------------------ */
+
+/** A node in the session graph: one Copilot session. */
+export interface GraphNode {
+  id: CopilotSessionId;
+  label: string;
+  repository?: string;
+  branch?: string;
+  cwd: string;
+  color?: TabColor;
+  liveness: SessionLiveness;
+  role?: "primary" | "child";
+  /** True when this session was created via fork (has a branchOf parent). */
+  isFork: boolean;
+  /** Number of co-located child sessions (for primaries). */
+  childCount: number;
+}
+
+/** Relationship kinds rendered as graph edges. */
+export type GraphEdgeKind = "fork" | "terminal" | "repo";
+
+/** An edge between two graph nodes. */
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  kind: GraphEdgeKind;
+}
+
+/** The full session graph plus the honest open-terminal count. */
+export interface GraphModel {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+  openCount: number;
+}
+
+/* ------------------------------------------------------------------ *
+ * Local memory / recall model
+ * ------------------------------------------------------------------ */
+
+/** Classification of an extracted memory. */
+export type MemoryKind = "summary" | "decision" | "todo" | "learning" | "file_context";
+
+/** A durable, recallable unit extracted from a session. */
+export interface Memory {
+  id: string;
+  sessionId: CopilotSessionId;
+  kind: MemoryKind;
+  title?: string;
+  content: string;
+  repository?: string;
+  branch?: string;
+  cwd?: string;
+  /** Source table in session-store.db (e.g. "checkpoints", "sessions"). */
+  sourceTable: string;
+  /** Source row reference (e.g. checkpoint id, turn index). */
+  sourceRef?: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
+/** A single memory search result with its relevance score. */
+export interface MemorySearchHit {
+  memory: Memory;
+  score: number;
+  snippet?: string;
+}
+
+/** A compact bundle of memory to inject as context into a new/forked session. */
+export interface MemoryRecallPack {
+  repository?: string;
+  branch?: string;
+  decisions: Memory[];
+  todos: Memory[];
+  summaries: Memory[];
+  files: string[];
+}
+

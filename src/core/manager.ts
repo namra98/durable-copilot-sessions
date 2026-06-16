@@ -3,8 +3,13 @@ import os from "node:os";
 import type {
   AppConfig,
   DiscoveredSession,
+  GraphModel,
   LaunchResult,
   ManagedSession,
+  Memory,
+  MemoryKind,
+  MemoryRecallPack,
+  MemorySearchHit,
   ResumeOptions,
   WindowSpec,
   WindowTarget,
@@ -20,8 +25,12 @@ import { createRegistry, type Registry } from "./registry/index.js";
 import {
   resumeSession as defaultResume,
   launchWindows as defaultLaunchWindows,
+  launchNewSession as defaultLaunchNew,
 } from "./launch/index.js";
 import { buildWindows, annotateOpen, type OpenAnnotation } from "./snapshot/grouping.js";
+import { buildGraph } from "./graph/index.js";
+import { branchSession as defaultBranch, type ForkResult } from "./branch/index.js";
+import { createMemoryStore, type MemoryStore } from "./memory/index.js";
 
 /** A discovered session merged with the tool's managed metadata, for API/UI use. */
 export type SessionView = DiscoveredSession & {
@@ -55,6 +64,9 @@ export interface ManagerDeps {
   getSession?: (id: string, opts?: ListOptions) => DiscoveredSession | undefined;
   resume?: typeof defaultResume;
   launchWindows?: typeof defaultLaunchWindows;
+  launchNew?: typeof defaultLaunchNew;
+  branch?: typeof defaultBranch;
+  memoryStore?: MemoryStore;
 }
 
 /** Patch shape for tool-managed session metadata. */
@@ -71,6 +83,9 @@ export class SessionManager {
   private readonly getSessionFn: (id: string, opts?: ListOptions) => DiscoveredSession | undefined;
   private readonly resumeFn: typeof defaultResume;
   private readonly launchWindowsFn: typeof defaultLaunchWindows;
+  private readonly launchNewFn: typeof defaultLaunchNew;
+  private readonly branchFn: typeof defaultBranch;
+  private memoryStore?: MemoryStore;
 
   constructor(deps: ManagerDeps = {}) {
     this.registry = deps.registry ?? createRegistry();
@@ -79,6 +94,9 @@ export class SessionManager {
     this.getSessionFn = deps.getSession ?? defaultGetSession;
     this.resumeFn = deps.resume ?? defaultResume;
     this.launchWindowsFn = deps.launchWindows ?? defaultLaunchWindows;
+    this.launchNewFn = deps.launchNew ?? defaultLaunchNew;
+    this.branchFn = deps.branch ?? defaultBranch;
+    this.memoryStore = deps.memoryStore;
   }
 
   getConfig(): AppConfig {
@@ -306,5 +324,106 @@ export class SessionManager {
 
   latestSnapshot(): Workspace | undefined {
     return this.registry.latestSnapshot();
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Session graph
+   * ---------------------------------------------------------------- */
+
+  /** Build the session graph (nodes + fork/terminal edges) for a filter. */
+  buildGraphModel(filter: SessionFilter = "live"): GraphModel {
+    const managed = this.managedMap();
+    const all = this.discover({ liveOnly: filter !== "all" });
+    return buildGraph(all, managed, this.config);
+  }
+
+  /** Fork (branch) a session into a new one; optionally launch it. */
+  fork(
+    parentId: string,
+    opts: { note?: string; launch?: boolean; color?: string; window?: WindowTarget } = {},
+  ): { session: SessionView; fork: ForkResult; launch?: LaunchResult } {
+    const result = this.branchFn(parentId, { note: opts.note });
+    const discovered = this.getSessionFn(result.newSessionId);
+    const managed = this.registry.getManaged(result.newSessionId);
+    const base: DiscoveredSession = discovered ?? {
+      id: result.newSessionId,
+      cwd: "",
+      cwdExists: false,
+      liveness: "inactive",
+      livePids: [],
+      topLevel: true,
+      branchOf: parentId,
+      name: result.newSessionName,
+    };
+    const session = this.toView(base, managed);
+    let launch: LaunchResult | undefined;
+    if (opts.launch) {
+      launch = this.resume({
+        sessionId: result.newSessionId,
+        title: result.newSessionName,
+        color: opts.color,
+        window: opts.window,
+      });
+    }
+    return { session, fork: result, launch };
+  }
+
+  /** Launch a brand-new Copilot session in a Windows Terminal tab. */
+  newSession(opts: {
+    title: string;
+    cwd: string;
+    color?: string;
+    prompt?: string;
+    window?: WindowTarget;
+  }): LaunchResult {
+    return this.launchNewFn({
+      title: opts.title,
+      cwd: opts.cwd,
+      color: opts.color,
+      prompt: opts.prompt,
+      window: opts.window,
+    });
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Local memory / recall
+   * ---------------------------------------------------------------- */
+
+  private mem(): MemoryStore {
+    if (!this.memoryStore) {
+      this.memoryStore = createMemoryStore();
+      // Build the index on first use if empty.
+      try {
+        if (this.memoryStore.count() === 0) {
+          this.memoryStore.reindex();
+        }
+      } catch {
+        // Recall is best-effort; ignore indexing failures.
+      }
+    }
+    return this.memoryStore;
+  }
+
+  searchMemory(
+    query: string,
+    opts?: { repository?: string; kind?: MemoryKind; limit?: number },
+  ): MemorySearchHit[] {
+    return this.mem().search(query, opts);
+  }
+
+  relatedMemory(sessionId: string, opts?: { limit?: number }): Memory[] {
+    return this.mem().related(sessionId, opts);
+  }
+
+  recallMemory(opts: { repository?: string; branch?: string; limit?: number }): MemoryRecallPack {
+    return this.mem().recall(opts);
+  }
+
+  sessionMemory(sessionId: string): Memory[] {
+    return this.mem().listForSession(sessionId);
+  }
+
+  reindexMemory(): { count: number } {
+    return this.mem().reindex();
   }
 }

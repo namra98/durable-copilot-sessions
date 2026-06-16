@@ -38,6 +38,34 @@ export function renderLaunchScript(tab: TabSpec): string {
 }
 
 /**
+ * Render the PowerShell text that starts a BRAND-NEW Copilot session. Pure. The
+ * script self-deletes, moves to `cwd`, and runs `copilot` (optionally `-i
+ * <prompt>` to seed the session, plus any extra args).
+ */
+export function renderNewSessionScript(
+  cwd: string,
+  prompt?: string,
+  copilotArgs: string[] = [],
+): string {
+  const extraArgs = copilotArgs.map(singleQuote);
+  const tail =
+    prompt && prompt.trim()
+      ? [...extraArgs, "'-i'", singleQuote(prompt)]
+      : extraArgs;
+  const copilotInvocation = ["& 'copilot'", ...tail].join(" ");
+
+  const lines = [
+    "$ErrorActionPreference = 'Stop'",
+    "if ($PSCommandPath) { Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue }",
+    `Set-Location -LiteralPath ${singleQuote(cwd)}`,
+    copilotInvocation,
+    "",
+  ];
+
+  return lines.join("\r\n");
+}
+
+/**
  * Write `content` to a uniquely-named `launch-<timestamp>-<uuid>.ps1` inside
  * `dir` (default: the owned launch-scripts directory), creating it if needed.
  * Returns the absolute path of the script.

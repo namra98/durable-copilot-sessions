@@ -110,6 +110,61 @@ function buildProgram(): Command {
     });
 
   program
+    .command("fork <sessionId>")
+    .description("Branch a session into a new one (inherits history) via fork lineage")
+    .option("--note <text>", "lineage note stored in the branch")
+    .option("--launch", "open the new branch in a Windows Terminal tab")
+    .option("--color <color>", "tab color for the launched branch")
+    .option("--window <target>", "new | current", "new")
+    .action((sessionId: string, opts: { note?: string; launch?: boolean; color?: string; window?: "new" | "current" }) => {
+      const mgr = new SessionManager();
+      const { fork, launch } = mgr.fork(sessionId, {
+        note: opts.note,
+        launch: opts.launch,
+        color: opts.color,
+        window: opts.window,
+      });
+      console.log(`Forked → ${fork.newSessionId}`);
+      console.log(`  name: ${fork.newSessionName}`);
+      console.log(`  path: ${fork.newSessionPath}`);
+      if (launch) printLaunch(launch);
+    });
+
+  program
+    .command("recall <query...>")
+    .description("Search your local session memory (decisions, todos, summaries)")
+    .option("--repo <repository>", "filter by repository")
+    .option("--kind <kind>", "decision | todo | learning | summary | file_context")
+    .option("--limit <n>", "max results", "10")
+    .action((query: string[], opts: { repo?: string; kind?: string; limit: string }) => {
+      const mgr = new SessionManager();
+      const hits = mgr.searchMemory(query.join(" "), {
+        repository: opts.repo,
+        kind: opts.kind as never,
+        limit: Number(opts.limit),
+      });
+      if (hits.length === 0) {
+        console.log("No memories found. (Run `dcs reindex-memory` to build the index.)");
+        return;
+      }
+      for (const hit of hits) {
+        const m = hit.memory;
+        console.log(`[${m.kind}] ${m.title ?? m.sessionId.slice(0, 8)}${m.repository ? `  (${m.repository})` : ""}`);
+        console.log(`   ${hit.snippet ?? m.content.slice(0, 160)}`);
+      }
+      console.log(`\n${hits.length} memory result(s).`);
+    });
+
+  program
+    .command("reindex-memory")
+    .description("Rebuild the local memory index from your Copilot session history")
+    .action(() => {
+      const mgr = new SessionManager();
+      const { count } = mgr.reindexMemory();
+      console.log(`Indexed ${count} memories.`);
+    });
+
+  program
     .command("save <name>")
     .description("Save the current live layout as a named workspace")
     .option("--all", "capture all discovered sessions, not just live ones")

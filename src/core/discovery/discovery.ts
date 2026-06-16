@@ -49,6 +49,8 @@ interface WorkspaceYaml {
   user_named?: unknown;
   created_at?: unknown;
   updated_at?: unknown;
+  branch_of?: unknown;
+  branch_note?: unknown;
 }
 
 /** Filenames look like `inuse.12316.lock`; capture the PID. */
@@ -271,6 +273,8 @@ function readSession(
     liveness,
     livePids,
     topLevel: clientName === undefined || clientName === CLI_CLIENT_NAME,
+    branchOf: optionalString(workspace.branch_of),
+    branchNote: optionalString(workspace.branch_note),
   };
 }
 

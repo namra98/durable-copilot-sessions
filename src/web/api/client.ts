@@ -7,7 +7,12 @@
 import type {
   AppConfig,
   DiscoveredSession,
+  GraphModel,
   LaunchResult,
+  Memory,
+  MemoryKind,
+  MemoryRecallPack,
+  MemorySearchHit,
   TabColor,
   WindowSpec,
   WindowTarget,
@@ -197,4 +202,108 @@ export async function snapshot(): Promise<Workspace> {
 export async function getConfig(): Promise<AppConfig> {
   const data = await request<{ config: AppConfig }>("/config");
   return data.config;
+}
+
+/* ------------------------------------------------------------------ *
+ * Session graph (canvas)
+ * ------------------------------------------------------------------ */
+
+/** Body for `POST /api/sessions/:id/fork`. */
+export interface ForkBody {
+  /** Free-text lineage note recorded on the new branched session. */
+  note?: string;
+  /** When true, also open a Windows Terminal tab for the new fork. */
+  launch?: boolean;
+  /** Preferred tab color for the fork. */
+  color?: TabColor;
+  /** Which window to target when launching. */
+  window?: WindowTarget;
+}
+
+/** Result of `POST /api/sessions/:id/fork`. */
+export interface ForkResult {
+  session: SessionView;
+  launch?: LaunchResult;
+}
+
+/** Body for `POST /api/sessions/new`. */
+export interface NewSessionBody {
+  title: string;
+  cwd: string;
+  color?: TabColor;
+  prompt?: string;
+  window?: WindowTarget;
+}
+
+/** `GET /api/graph?filter=…` -> the session graph plus the open-terminal count. */
+export function getGraph(filter: SessionFilter): Promise<GraphModel> {
+  return request<GraphModel>(`/graph?filter=${encodeURIComponent(filter)}`);
+}
+
+/** `POST /api/sessions/:id/fork` -> the new branched session (+ optional launch). */
+export function forkSession(id: string, body: ForkBody = {}): Promise<ForkResult> {
+  return request<ForkResult>(`/sessions/${encodeURIComponent(id)}/fork`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `POST /api/sessions/new` -> the launch result for the freshly created session. */
+export function newSession(body: NewSessionBody): Promise<LaunchResult> {
+  return request<LaunchResult>("/sessions/new", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * Local memory / recall
+ * ------------------------------------------------------------------ */
+
+/** Query parameters accepted by `GET /api/memory/search`. */
+export interface MemorySearchParams {
+  q: string;
+  repository?: string;
+  kind?: MemoryKind;
+  limit?: number;
+}
+
+/** `GET /api/memory/search?q=…` -> ranked memory hits. */
+export async function searchMemory(params: MemorySearchParams): Promise<MemorySearchHit[]> {
+  const qs = new URLSearchParams();
+  qs.set("q", params.q);
+  if (params.repository) qs.set("repository", params.repository);
+  if (params.kind) qs.set("kind", params.kind);
+  if (params.limit !== undefined) qs.set("limit", String(params.limit));
+  const data = await request<{ hits: MemorySearchHit[] }>(`/memory/search?${qs.toString()}`);
+  return data.hits;
+}
+
+/** `GET /api/memory/related/:sessionId` -> memories related to a session. */
+export async function relatedMemory(sessionId: string): Promise<Memory[]> {
+  const data = await request<{ memories: Memory[] }>(
+    `/memory/related/${encodeURIComponent(sessionId)}`,
+  );
+  return data.memories;
+}
+
+/** `GET /api/memory/recall?repository=&branch=` -> a recall pack for a repo. */
+export async function recallMemory(repository: string, branch?: string): Promise<MemoryRecallPack> {
+  const qs = new URLSearchParams();
+  qs.set("repository", repository);
+  if (branch) qs.set("branch", branch);
+  const data = await request<{ pack: MemoryRecallPack }>(`/memory/recall?${qs.toString()}`);
+  return data.pack;
+}
+
+/** `GET /api/memory/session/:id` -> memories extracted from a single session. */
+export async function sessionMemory(id: string): Promise<Memory[]> {
+  const data = await request<{ memories: Memory[] }>(`/memory/session/${encodeURIComponent(id)}`);
+  return data.memories;
+}
+
+/** `POST /api/memory/reindex` -> the number of memories (re)indexed. */
+export async function reindexMemory(): Promise<number> {
+  const data = await request<{ count: number }>("/memory/reindex", { method: "POST" });
+  return data.count;
 }

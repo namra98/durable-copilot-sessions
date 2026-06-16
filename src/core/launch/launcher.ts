@@ -7,7 +7,7 @@ import type {
   WindowSpec,
   WindowTarget,
 } from "../types.js";
-import { renderLaunchScript, writeLaunchScript } from "./script.js";
+import { renderLaunchScript, renderNewSessionScript, writeLaunchScript } from "./script.js";
 import { buildWindowArgs, resolveExecutable, resolveLaunchCwd } from "./wt.js";
 /**
  * High-level entry points that turn launch specs into running Windows Terminal
@@ -120,6 +120,58 @@ export function resumeSession(opts: ResumeOptions, deps: LauncherDeps = {}): Lau
     };
   }
 
+  return { ok: true, tabsLaunched: 1, windowsOpened: 1, warnings };
+}
+
+/** Options for launching a brand-new Copilot session. */
+export interface NewSessionOptions {
+  title: string;
+  cwd: string;
+  color?: string;
+  prompt?: string;
+  window?: WindowTarget;
+  copilotArgs?: string[];
+  dryRun?: boolean;
+}
+
+/** Launch a brand-new (non-resume) Copilot session in a new Windows Terminal tab. */
+export function launchNewSession(opts: NewSessionOptions, deps: LauncherDeps = {}): LaunchResult {
+  const warnings: string[] = [];
+  const resolved = resolveLaunchCwd({ cwd: opts.cwd });
+  if (resolved.warning) {
+    warnings.push(resolved.warning);
+  }
+  const spec: TabSpec = {
+    sessionId: "new",
+    title: opts.title,
+    color: opts.color ?? "blue",
+    cwd: resolved.cwd,
+  };
+  const target: WindowTarget = opts.window ?? "new";
+
+  const resolve = deps.resolve ?? ((name: string) => resolveExecutable(name));
+  const { wtMissing, copilotWarning } = checkLaunchExecutables(resolve);
+  if (copilotWarning) {
+    warnings.push(copilotWarning);
+  }
+
+  const scriptPath = writeLaunchScript(
+    renderNewSessionScript(resolved.cwd, opts.prompt, opts.copilotArgs ?? []),
+    deps.scriptDir,
+  );
+  const args = buildWindowArgs(target, [{ spec, scriptPath }]);
+
+  if (opts.dryRun) {
+    return { ok: true, tabsLaunched: 1, windowsOpened: 1, warnings };
+  }
+  if (wtMissing) {
+    return { ok: false, tabsLaunched: 0, windowsOpened: 0, warnings, error: WT_NOT_FOUND };
+  }
+  const exec = deps.exec ?? defaultExec;
+  const result = exec(args);
+  if (isFailure(result)) {
+    return { ok: false, tabsLaunched: 0, windowsOpened: 0, warnings, error: execErrorMessage(result) };
+  }
   return { ok: true, tabsLaunched: 1, windowsOpened: 1, warnings };
 }
 

@@ -26,6 +26,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@dagrejs/dagre": "^3.0.0",
+    "@xyflow/react": "^12.11.0",
     "commander": "^12.1.0",
     "express": "^4.21.2",
     "open": "^10.1.0",

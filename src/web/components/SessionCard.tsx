@@ -14,6 +14,7 @@ interface SessionCardProps {
   onToggleExpand: (id: string) => void;
   onResume: (session: SessionView) => void;
   onPatch: (id: string, patch: SessionPatch) => void;
+  onRelated?: (session: SessionView) => void;
 }
 
 const LIVENESS_LABEL: Record<SessionView["liveness"], string> = {
@@ -31,6 +32,7 @@ export function SessionCard({
   onToggleExpand,
   onResume,
   onPatch,
+  onRelated,
 }: SessionCardProps) {
   const color = resolveColor(session);
   const name = displayName(session);
@@ -211,6 +213,16 @@ export function SessionCard({
         >
           {session.hidden ? "Unhide" : "Hide"}
         </button>
+        {onRelated && (
+          <button
+            className="btn btn--ghost"
+            type="button"
+            title="Show related memories"
+            onClick={() => onRelated(session)}
+          >
+            ◎ Related
+          </button>
+        )}
       </footer>
     </article>
   );

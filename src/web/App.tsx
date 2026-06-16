@@ -13,6 +13,8 @@ import { SkeletonGrid } from "./components/SkeletonCard";
 import { Toolbar, type Grouping } from "./components/Toolbar";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { ToastStack, useToasts } from "./components/Toast";
+import { GraphView } from "./components/GraphView";
+import { MemoryPanel, type RelatedSeed } from "./components/MemoryPanel";
 import { resolveColor } from "./lib/colors";
 import { useLocalStorage } from "./lib/useLocalStorage";
 import {
@@ -51,6 +53,8 @@ export function App() {
   const { toasts, push, dismiss } = useToasts();
 
   const [filter, setFilter] = useState<SessionFilter>("open");
+  const [primaryView, setPrimaryView] = useState<"sessions" | "graph" | "memory">("sessions");
+  const [relatedSeed, setRelatedSeed] = useState<RelatedSeed | null>(null);
   const [windowTarget, setWindowTarget] = useState<WindowTarget>("new");
   const [showHidden, setShowHidden] = useState(false);
 
@@ -324,6 +328,16 @@ export function App() {
     );
   }, []);
 
+  const selectSessionsTab = useCallback((next: SessionFilter) => {
+    setPrimaryView("sessions");
+    setFilter(next);
+  }, []);
+
+  const showRelatedMemory = useCallback((sessionId: string, label: string) => {
+    setRelatedSeed({ sessionId, label });
+    setPrimaryView("memory");
+  }, []);
+
   const activeList = filter === "open" ? data.open : filter === "live" ? data.live : data.all;
 
   const hiddenCount = useMemo(() => activeList.filter((s) => s.hidden).length, [activeList]);
@@ -351,6 +365,7 @@ export function App() {
       onToggleExpand={toggleExpand}
       onResume={handleResume}
       onPatch={handlePatch}
+      onRelated={(s) => showRelatedMemory(s.id, s.title || s.name || s.id)}
     />
   );
 
@@ -405,9 +420,9 @@ export function App() {
         <button
           type="button"
           role="tab"
-          aria-selected={filter === "open"}
-          className={`tab${filter === "open" ? " tab--on" : ""}`}
-          onClick={() => setFilter("open")}
+          aria-selected={primaryView === "sessions" && filter === "open"}
+          className={`tab${primaryView === "sessions" && filter === "open" ? " tab--on" : ""}`}
+          onClick={() => selectSessionsTab("open")}
         >
           <span className="tab__dot" aria-hidden="true" />
           Open
@@ -416,9 +431,9 @@ export function App() {
         <button
           type="button"
           role="tab"
-          aria-selected={filter === "live"}
-          className={`tab${filter === "live" ? " tab--on" : ""}`}
-          onClick={() => setFilter("live")}
+          aria-selected={primaryView === "sessions" && filter === "live"}
+          className={`tab${primaryView === "sessions" && filter === "live" ? " tab--on" : ""}`}
+          onClick={() => selectSessionsTab("live")}
         >
           Live
           <span className="tab__count">{data.live.length}</span>
@@ -426,16 +441,34 @@ export function App() {
         <button
           type="button"
           role="tab"
-          aria-selected={filter === "all"}
-          className={`tab${filter === "all" ? " tab--on" : ""}`}
-          onClick={() => setFilter("all")}
+          aria-selected={primaryView === "sessions" && filter === "all"}
+          className={`tab${primaryView === "sessions" && filter === "all" ? " tab--on" : ""}`}
+          onClick={() => selectSessionsTab("all")}
         >
           All
           <span className="tab__count">{data.all.length}</span>
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={primaryView === "graph"}
+          className={`tab${primaryView === "graph" ? " tab--on" : ""}`}
+          onClick={() => setPrimaryView("graph")}
+        >
+          Graph
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={primaryView === "memory"}
+          className={`tab${primaryView === "memory" ? " tab--on" : ""}`}
+          onClick={() => setPrimaryView("memory")}
+        >
+          Memory
+        </button>
       </nav>
 
-      {error && (
+      {error && primaryView === "sessions" && (
         <div className="banner banner--error" role="alert">
           <span>{error}</span>
           <button type="button" className="btn btn--ghost" onClick={manualRefresh}>
@@ -444,7 +477,26 @@ export function App() {
         </div>
       )}
 
-      <main className="content">
+      {primaryView === "graph" ? (
+        <main className="content content--graph">
+          <GraphView
+            initialFilter={filter}
+            windowTarget={windowTarget}
+            push={push}
+            onShowRelated={showRelatedMemory}
+          />
+        </main>
+      ) : primaryView === "memory" ? (
+        <main className="content content--memory">
+          <MemoryPanel
+            windowTarget={windowTarget}
+            push={push}
+            relatedSeed={relatedSeed}
+            onClearRelated={() => setRelatedSeed(null)}
+          />
+        </main>
+      ) : (
+        <main className="content">
         <section className="panel">
           <div className="panel__head">
             <h2>
@@ -542,6 +594,7 @@ export function App() {
           />
         </section>
       </main>
+      )}
 
       {showSaveDialog && (
         <SaveWorkspaceDialog

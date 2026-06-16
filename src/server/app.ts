@@ -54,6 +54,73 @@ export function createApp(manager: SessionManager): Express {
     res.json(manager.resumeMany(ids, { window: body.window as "new" | "current" | undefined }));
   });
 
+  api.post("/sessions/new", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof body.title !== "string" || typeof body.cwd !== "string") {
+      res.status(400).json({ error: "title and cwd are required" });
+      return;
+    }
+    res.json(
+      manager.newSession({
+        title: body.title,
+        cwd: body.cwd,
+        color: body.color as string | undefined,
+        prompt: body.prompt as string | undefined,
+        window: body.window as "new" | "current" | undefined,
+      }),
+    );
+  });
+
+  api.post("/sessions/:id/fork", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    res.json(
+      manager.fork(req.params.id, {
+        note: body.note as string | undefined,
+        launch: body.launch as boolean | undefined,
+        color: body.color as string | undefined,
+        window: body.window as "new" | "current" | undefined,
+      }),
+    );
+  });
+
+  // --- Session graph ---
+  api.get("/graph", (req: Request, res: Response) => {
+    res.json(manager.buildGraphModel(asFilter(req.query.filter)));
+  });
+
+  // --- Local memory / recall ---
+  api.get("/memory/search", (req: Request, res: Response) => {
+    const q = typeof req.query.q === "string" ? req.query.q : "";
+    res.json({
+      hits: manager.searchMemory(q, {
+        repository: typeof req.query.repository === "string" ? req.query.repository : undefined,
+        kind: req.query.kind as never,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+      }),
+    });
+  });
+
+  api.get("/memory/related/:sessionId", (req: Request, res: Response) => {
+    res.json({ memories: manager.relatedMemory(req.params.sessionId) });
+  });
+
+  api.get("/memory/recall", (req: Request, res: Response) => {
+    res.json({
+      pack: manager.recallMemory({
+        repository: typeof req.query.repository === "string" ? req.query.repository : undefined,
+        branch: typeof req.query.branch === "string" ? req.query.branch : undefined,
+      }),
+    });
+  });
+
+  api.get("/memory/session/:id", (req: Request, res: Response) => {
+    res.json({ memories: manager.sessionMemory(req.params.id) });
+  });
+
+  api.post("/memory/reindex", (_req: Request, res: Response) => {
+    res.json(manager.reindexMemory());
+  });
+
   api.get("/workspaces", (_req: Request, res: Response) => {
     res.json({ workspaces: manager.listWorkspaces() });
   });
