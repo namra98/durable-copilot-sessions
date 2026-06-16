@@ -13,7 +13,7 @@ import { log } from "../core/logger.js";
 const APP_VERSION = "0.1.0";
 
 function asFilter(value: unknown): SessionFilter {
-  return value === "all" ? "all" : value === "live" ? "live" : "all";
+  return value === "all" ? "all" : value === "live" ? "live" : "open";
 }
 
 /** Build the Express app for a given SessionManager (kept separate for tests). */
@@ -28,7 +28,7 @@ export function createApp(manager: SessionManager): Express {
   });
 
   api.get("/sessions", (req: Request, res: Response) => {
-    res.json({ sessions: manager.listSessions(asFilter(req.query.filter)) });
+    res.json(manager.listSessionsResult(asFilter(req.query.filter)));
   });
 
   api.patch("/sessions/:id", (req: Request, res: Response) => {
@@ -46,6 +46,12 @@ export function createApp(manager: SessionManager): Express {
         cwd: body.cwd as string | undefined,
       }),
     );
+  });
+
+  api.post("/sessions/resume-batch", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const ids = Array.isArray(body.sessionIds) ? (body.sessionIds as string[]) : [];
+    res.json(manager.resumeMany(ids, { window: body.window as "new" | "current" | undefined }));
   });
 
   api.get("/workspaces", (_req: Request, res: Response) => {

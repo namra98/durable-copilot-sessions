@@ -11,6 +11,7 @@ import { ensureStateDirs } from "../core/paths.js";
 import { log } from "../core/logger.js";
 import { buildWindowArgs, writeLaunchScript } from "../core/launch/index.js";
 import { installTasks, uninstallTasks, tasksStatus } from "../scheduling/index.js";
+import { runDoctor } from "../core/doctor/index.js";
 
 function tabCount(ws: Workspace): number {
   return ws.windows.reduce((n, w) => n + w.tabs.length, 0);
@@ -28,7 +29,10 @@ function printLaunch(result: LaunchResult): void {
   }
 }
 
-function printSessions(sessions: SessionView[]): void {
+function printSessions(
+  sessions: SessionView[],
+  opts: { tree?: boolean; openCount?: number } = {},
+): void {
   if (sessions.length === 0) {
     console.log("No sessions found.");
     return;
@@ -38,10 +42,16 @@ function printSessions(sessions: SessionView[]): void {
   for (const s of sessions) {
     const title = s.title ?? s.name ?? s.id.slice(0, 8);
     const repo = s.repository ? `${s.repository}${s.branch ? `@${s.branch}` : ""}` : "";
-    console.log(`${badge(s)}  ${s.id.slice(0, 8)}  ${title}`);
+    const child =
+      opts.tree && s.role === "primary" && (s.childCount ?? 0) > 0 ? `  +${s.childCount}` : "";
+    console.log(`${badge(s)}  ${s.id.slice(0, 8)}  ${title}${child}`);
     console.log(`          ${s.cwd}${repo ? `   [${repo}]` : ""}`);
   }
-  console.log(`\n${sessions.length} session(s).`);
+  if (opts.openCount !== undefined) {
+    console.log(`\n${sessions.length} session(s); ${opts.openCount} open terminal(s).`);
+  } else {
+    console.log(`\n${sessions.length} session(s).`);
+  }
 }
 
 /** PowerShell launch script for a brand-new (non-resume) Copilot session. */
@@ -75,11 +85,15 @@ function buildProgram(): Command {
 
   program
     .command("list")
-    .description("List discovered Copilot sessions (live first)")
-    .option("--all", "include inactive/idle sessions, not just live ones")
-    .action((opts: { all?: boolean }) => {
+    .description("List discovered Copilot sessions (open terminals by default)")
+    .option("--live", "list all live sessions (flat), not just open primaries")
+    .option("--all", "include inactive/idle sessions")
+    .option("--tree", "show each open primary with a +N child-session indicator")
+    .action((opts: { live?: boolean; all?: boolean; tree?: boolean }) => {
       const mgr = new SessionManager();
-      printSessions(mgr.listSessions(opts.all ? "all" : "live"));
+      const filter = opts.all ? "all" : opts.live ? "live" : "open";
+      const result = mgr.listSessionsResult(filter);
+      printSessions(result.sessions, { tree: opts.tree, openCount: result.openCount });
     });
 
   program
@@ -121,6 +135,47 @@ function buildProgram(): Command {
     .action((nameOrId: string, opts: { window?: "new" | "current"; dryRun?: boolean }) => {
       const mgr = new SessionManager();
       printLaunch(mgr.restoreByNameOrId(nameOrId, { window: opts.window, dryRun: opts.dryRun }));
+    });
+
+  program
+    .command("resume-repo <repository>")
+    .description("Resume every OPEN session matching a repository as one grouped window")
+    .option("--window <target>", "new | current", "new")
+    .option("--dry-run", "build commands without launching")
+    .action((repository: string, opts: { window?: "new" | "current"; dryRun?: boolean }) => {
+      const mgr = new SessionManager();
+      const needle = repository.toLowerCase();
+      const matches = mgr.listSessions("open").filter((s) => {
+        const haystack = [s.repository, s.gitRoot, s.cwd]
+          .filter((v): v is string => typeof v === "string" && v.length > 0)
+          .map((v) => v.toLowerCase());
+        return haystack.some((v) => v.includes(needle));
+      });
+      if (matches.length === 0) {
+        console.log(`No open sessions match "${repository}".`);
+        return;
+      }
+      const ids = matches.map((s) => s.id);
+      console.log(`Resuming ${ids.length} open session(s) matching "${repository}".`);
+      printLaunch(mgr.resumeMany(ids, { window: opts.window, dryRun: opts.dryRun }));
+    });
+
+  program
+    .command("restore-last")
+    .description("Restore the most recent auto-snapshot")
+    .option("--window <target>", "new | current", "new")
+    .option("--dry-run", "build commands without launching")
+    .action((opts: { window?: "new" | "current"; dryRun?: boolean }) => {
+      const mgr = new SessionManager();
+      const latest = mgr.latestSnapshot();
+      if (!latest) {
+        console.log("No snapshot available to restore. Take one with `dcs snapshot`.");
+        return;
+      }
+      console.log(
+        `Restoring last snapshot (${latest.createdAt}) — ${tabCount(latest)} session(s) across ${latest.windows.length} window(s).`,
+      );
+      printLaunch(mgr.restoreWorkspace(latest.id, { window: opts.window, dryRun: opts.dryRun }));
     });
 
   program
@@ -231,6 +286,25 @@ function buildProgram(): Command {
       const s = tasksStatus();
       console.log(`Snapshot task:      ${s.snapshot ? "installed" : "not installed"}`);
       console.log(`Logon restore task: ${s.logon ? "installed" : "not installed"}`);
+    });
+
+  program
+    .command("doctor")
+    .description("Run environment health checks (wt, PowerShell, copilot, Node, state dirs, tasks)")
+    .option("--json", "output results as JSON")
+    .action((opts: { json?: boolean }) => {
+      const { checks, ok } = runDoctor();
+      if (opts.json) {
+        console.log(JSON.stringify({ ok, checks }, null, 2));
+      } else {
+        for (const c of checks) {
+          console.log(`${c.ok ? "✓" : "✗"}  ${c.name} — ${c.detail}`);
+        }
+        console.log(`\n${ok ? "All checks passed." : "Some checks failed."}`);
+      }
+      if (!ok) {
+        process.exitCode = 1;
+      }
     });
 
   return program;

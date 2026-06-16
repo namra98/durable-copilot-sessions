@@ -58,6 +58,42 @@ export function toCssColor(color: string): string {
   return trimmed;
 }
 
+/** The set of Windows Terminal color names we accept as custom input. */
+export const NAMED_COLOR_KEYS: readonly string[] = Object.keys(NAMED_COLORS);
+
+/** Result of validating a free-text color input from the picker. */
+export interface ParsedColor {
+  /** Whether the input is a recognized hex or WT color name. */
+  valid: boolean;
+  /** A CSS color usable for the live preview (empty when invalid). */
+  css: string;
+  /** The canonical value to persist via PATCH (#rrggbb or the WT name). */
+  stored: string;
+}
+
+/**
+ * Validate and normalize a free-text color: `#RRGGBB`, bare `RRGGBB`, or a known
+ * Windows Terminal color name. Returns the CSS preview color and the canonical
+ * value to store. Invalid input yields `{ valid: false }`.
+ */
+export function parseColorInput(raw: string): ParsedColor {
+  const trimmed = raw.trim();
+  if (!trimmed) return { valid: false, css: "", stored: "" };
+
+  const hex = trimmed.startsWith("#") ? trimmed.slice(1) : trimmed;
+  if (/^[0-9a-f]{6}$/i.test(hex)) {
+    const stored = `#${hex.toLowerCase()}`;
+    return { valid: true, css: stored, stored };
+  }
+
+  const named = NAMED_COLORS[trimmed.toLowerCase()];
+  if (named) {
+    return { valid: true, css: named, stored: trimmed.toLowerCase() };
+  }
+
+  return { valid: false, css: "", stored: "" };
+}
+
 /** Deterministically pick a swatch for a session lacking an explicit color. */
 export function autoColor(session: SessionView): string {
   const key = session.repository ?? session.gitRoot ?? session.cwd ?? session.id;

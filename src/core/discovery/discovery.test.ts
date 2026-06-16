@@ -33,7 +33,12 @@ function writeSession(id: string, data: Record<string, unknown>, lockPids: numbe
 }
 
 function list(overrides: Record<string, unknown> = {}): DiscoveredSession[] {
-  return listSessions({ sessionStateDir: stateDir, sessionStoreDb: missingStoreDb, ...overrides });
+  return listSessions({
+    sessionStateDir: stateDir,
+    sessionStoreDb: missingStoreDb,
+    processSnapshot: new Map<number, string>([[LIVE_PID, "node.exe"]]),
+    ...overrides,
+  });
 }
 
 function byId(sessions: DiscoveredSession[]): Record<string, DiscoveredSession> {
@@ -270,3 +275,18 @@ describe("enrichSummaries", () => {
     }
   });
 });
+
+    describe("process-snapshot liveness", () => {
+      it("treats a lock held by a non-Copilot process (PID reuse) as not live", () => {
+        // LIVE_ID's lock pid is LIVE_PID; map it to an unrelated process image.
+        const sessions = list({ processSnapshot: new Map<number, string>([[LIVE_PID, "explorer.exe"]]) });
+        const map = byId(sessions);
+        expect(map[LIVE_ID].liveness).toBe("stale");
+        expect(map[LIVE_ID].livePids).toEqual([]);
+      });
+
+      it("counts a copilot.exe holder as live", () => {
+        const sessions = list({ processSnapshot: new Map<number, string>([[LIVE_PID, "copilot.exe"]]) });
+        expect(byId(sessions)[LIVE_ID].liveness).toBe("live");
+      });
+    });

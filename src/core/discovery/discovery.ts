@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
+import { spawnSync } from "node:child_process";
 import { parse } from "yaml";
 import type { DiscoveredSession, SessionLiveness } from "../types.js";
 import { copilotSessionStateDir, copilotSessionStoreDb } from "../paths.js";
@@ -21,6 +22,14 @@ export interface ListOptions {
   sessionStateDir?: string;
   /** SQLite index used for summary enrichment. Defaults to Copilot's. */
   sessionStoreDb?: string;
+  /** Injectable running-process snapshot (pid -> image name). For tests. */
+  processSnapshot?: ProcessSnapshot;
+  /**
+   * When true, skip non-live sessions without parsing their workspace.yaml.
+   * A large optimization for the default "open"/"live" views (only ~live dirs
+   * are read instead of all 1000+).
+   */
+  liveOnly?: boolean;
   /**
    * Reserved. Discovery always returns every parsed session; callers filter.
    * Kept in the signature for forward compatibility.
@@ -69,6 +78,64 @@ export function isPidAlive(pid: number): boolean {
     }
     return false;
   }
+}
+
+/** Map of running process id -> executable image name (lower-cased). */
+export type ProcessSnapshot = Map<number, string>;
+
+let snapshotCache: { at: number; snap: ProcessSnapshot } | undefined;
+
+/**
+ * Snapshot running processes (pid -> image name) via `tasklist`. Cached briefly
+ * so repeated discovery calls don't re-spawn it. Returns an empty map on any
+ * failure, in which case callers fall back to a bare PID-liveness probe.
+ */
+export function getProcessSnapshot(): ProcessSnapshot {
+  const now = Date.now();
+  if (snapshotCache && now - snapshotCache.at < 2500) {
+    return snapshotCache.snap;
+  }
+  const snap: ProcessSnapshot = new Map();
+  // Only enumerate the images that can hold a Copilot session lock; a filtered
+  // tasklist is ~4x faster than enumerating every process.
+  for (const image of ["copilot.exe", "node.exe"]) {
+    try {
+      const res = spawnSync(
+        "tasklist",
+        ["/fi", `imagename eq ${image}`, "/fo", "csv", "/nh"],
+        { encoding: "utf8" },
+      );
+      if (res.status === 0 && res.stdout) {
+        for (const line of res.stdout.split(/\r?\n/)) {
+          const m = /^"([^"]+)","(\d+)"/.exec(line);
+          if (m) {
+            snap.set(Number(m[2]), m[1].toLowerCase());
+          }
+        }
+      }
+    } catch {
+      // tasklist unavailable (e.g. non-Windows); leave this image out.
+    }
+  }
+  snapshotCache = { at: now, snap };
+  return snap;
+}
+
+/** Image names that identify a Copilot CLI process holding a session lock. */
+const COPILOT_PROC_RE = /copilot|node/i;
+
+/**
+ * Whether `pid` currently belongs to a live Copilot process. With a process
+ * snapshot we require the image name to look like Copilot/node, which rejects
+ * dead locks and PID reuse by unrelated processes. Without a snapshot we fall
+ * back to a bare signal-0 liveness probe.
+ */
+function pidIsLiveCopilot(pid: number, snapshot: ProcessSnapshot): boolean {
+  if (snapshot.size > 0) {
+    const name = snapshot.get(pid);
+    return name !== undefined && COPILOT_PROC_RE.test(name);
+  }
+  return isPidAlive(pid);
 }
 
 /** Coerce a YAML scalar to a non-empty string, else undefined. */
@@ -120,7 +187,10 @@ function sortSessions(sessions: DiscoveredSession[]): void {
 }
 
 /** Collect the alive PIDs holding `inuse.<pid>.lock` files, plus a lock count. */
-function readLiveness(sessionDir: string): { livePids: number[]; lockCount: number } {
+function readLiveness(
+  sessionDir: string,
+  snapshot: ProcessSnapshot,
+): { livePids: number[]; lockCount: number } {
   let files: string[];
   try {
     files = fs.readdirSync(sessionDir);
@@ -136,7 +206,7 @@ function readLiveness(sessionDir: string): { livePids: number[]; lockCount: numb
     }
     lockCount += 1;
     const pid = Number(match[1]);
-    if (isPidAlive(pid) && !livePids.includes(pid)) {
+    if (pidIsLiveCopilot(pid, snapshot) && !livePids.includes(pid)) {
       livePids.push(pid);
     }
   }
@@ -144,10 +214,22 @@ function readLiveness(sessionDir: string): { livePids: number[]; lockCount: numb
 }
 
 /** Build a DiscoveredSession from a session folder, or undefined to skip it. */
-function readSession(sessionStateDir: string, id: string): DiscoveredSession | undefined {
+function readSession(
+  sessionStateDir: string,
+  id: string,
+  snapshot: ProcessSnapshot,
+  liveOnly: boolean,
+): DiscoveredSession | undefined {
   const sessionDir = path.join(sessionStateDir, id);
-  const yamlPath = path.join(sessionDir, "workspace.yaml");
 
+  // Liveness first (one readdir): lets the open/live views skip parsing the
+  // workspace.yaml of every inactive session.
+  const { livePids, lockCount } = readLiveness(sessionDir, snapshot);
+  if (liveOnly && livePids.length === 0) {
+    return undefined;
+  }
+
+  const yamlPath = path.join(sessionDir, "workspace.yaml");
   let raw: string;
   try {
     raw = fs.readFileSync(yamlPath, "utf8");
@@ -163,7 +245,6 @@ function readSession(sessionStateDir: string, id: string): DiscoveredSession | u
   }
 
   const cwd = optionalString(workspace.cwd) ?? "";
-  const { livePids, lockCount } = readLiveness(sessionDir);
 
   let liveness: SessionLiveness;
   if (livePids.length > 0) {
@@ -305,6 +386,8 @@ export function enrichSummaries(
 export function listSessions(opts?: ListOptions): DiscoveredSession[] {
   const sessionStateDir = opts?.sessionStateDir ?? copilotSessionStateDir;
   const sessionStoreDb = opts?.sessionStoreDb ?? copilotSessionStoreDb;
+  const snapshot = opts?.processSnapshot ?? getProcessSnapshot();
+  const liveOnly = opts?.liveOnly ?? false;
 
   let entries: fs.Dirent[];
   try {
@@ -318,7 +401,7 @@ export function listSessions(opts?: ListOptions): DiscoveredSession[] {
     if (!entry.isDirectory()) {
       continue;
     }
-    const session = readSession(sessionStateDir, entry.name);
+    const session = readSession(sessionStateDir, entry.name, snapshot, liveOnly);
     if (session) {
       sessions.push(session);
     }
@@ -336,5 +419,18 @@ export function listSessions(opts?: ListOptions): DiscoveredSession[] {
 
 /** Discover a single session by id, or undefined when it cannot be found. */
 export function getSession(id: string, opts?: ListOptions): DiscoveredSession | undefined {
-  return listSessions(opts).find((session) => session.id === id);
+  const sessionStateDir = opts?.sessionStateDir ?? copilotSessionStateDir;
+  const sessionStoreDb = opts?.sessionStoreDb ?? copilotSessionStoreDb;
+  const snapshot = opts?.processSnapshot ?? getProcessSnapshot();
+  // Read just this one session's directory rather than scanning every session.
+  const session = readSession(sessionStateDir, id, snapshot, false);
+  if (!session) {
+    return undefined;
+  }
+  try {
+    enrichSummaries([session], sessionStoreDb);
+  } catch {
+    // Enrichment is optional.
+  }
+  return session;
 }

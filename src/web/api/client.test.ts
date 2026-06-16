@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { listSessions, patchSession } from "./client";
+import { listSessions, patchSession, resumeBatch } from "./client";
 
 function makeResponse(body: unknown, ok = true, status = 200): Response {
   return {
@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 describe("api client", () => {
-  it("listSessions calls /api/sessions?filter=live and parses { sessions }", async () => {
+  it("listSessions calls /api/sessions?filter=open and parses { sessions, openCount }", async () => {
     const sessions = [
       {
         id: "abc-123",
@@ -26,7 +26,29 @@ describe("api client", () => {
         livePids: [42],
         topLevel: true,
         managed: false,
+        role: "primary",
+        groupPid: 42,
+        childCount: 2,
       },
+    ];
+    const mockFetch = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(makeResponse({ sessions, openCount: 7 })),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await listSessions("open");
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/sessions?filter=open");
+    expect(result.sessions).toEqual(sessions);
+    expect(result.openCount).toBe(7);
+  });
+
+  it("listSessions falls back to sessions.length when openCount is absent", async () => {
+    const sessions = [
+      { id: "a", cwd: "x", cwdExists: true, liveness: "live", livePids: [], topLevel: true, managed: false },
+      { id: "b", cwd: "y", cwdExists: true, liveness: "stale", livePids: [], topLevel: true, managed: false },
     ];
     const mockFetch = vi.fn(
       (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
@@ -35,10 +57,24 @@ describe("api client", () => {
     vi.stubGlobal("fetch", mockFetch);
 
     const result = await listSessions("live");
+    expect(result.openCount).toBe(2);
+  });
 
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(mockFetch.mock.calls[0][0]).toBe("/api/sessions?filter=live");
-    expect(result).toEqual(sessions);
+  it("resumeBatch POSTs the session ids and window to /api/sessions/resume-batch", async () => {
+    const launch = { ok: true, tabsLaunched: 3, windowsOpened: 1, warnings: [] };
+    const mockFetch = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(makeResponse(launch)),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await resumeBatch(["a", "b", "c"], "new");
+
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/sessions/resume-batch");
+    const init = mockFetch.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ sessionIds: ["a", "b", "c"], window: "new" });
+    expect(result).toEqual(launch);
   });
 
   it("throws with the server error message on a non-2xx response", async () => {

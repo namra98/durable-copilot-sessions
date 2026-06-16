@@ -4,6 +4,6 @@
  */
 export { colorToHex } from "./colors.js";
 export { renderLaunchScript, writeLaunchScript } from "./script.js";
-export { pickShell, escapeWtValue, resolveLaunchCwd, buildWindowArgs } from "./wt.js";
+export { pickShell, escapeWtValue, resolveLaunchCwd, buildWindowArgs, resolveExecutable, preflight } from "./wt.js";
 export { resumeSession, launchWindows } from "./launcher.js";
-export type { ExecFn, ExecResult } from "./launcher.js";
+export type { ExecFn, ExecResult, ResolveFn } from "./launcher.js";

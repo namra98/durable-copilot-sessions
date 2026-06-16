@@ -95,3 +95,84 @@ export function buildWindows(
   }
   return windows;
 }
+
+/** Parsed `updatedAt` millis, or 0 when missing/unparseable. */
+function updatedMillis(s: DiscoveredSession): number {
+  if (!s.updatedAt) return 0;
+  const ms = Date.parse(s.updatedAt);
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+/** Per-session open-role annotation plus the count of distinct open terminals. */
+export interface OpenAnnotation {
+  /** "primary" = an open terminal's foreground session; "child" = a co-located session. */
+  roleById: Map<string, "primary" | "child">;
+  /** The holder PID used to group each live session. */
+  groupPidById: Map<string, number>;
+  /** session id -> its child session ids (for primaries). */
+  childrenById: Map<string, string[]>;
+  /** Number of distinct open terminals (= distinct primary sessions). */
+  openCount: number;
+}
+
+/**
+ * Reconcile the "17 live vs 7 open" problem: a single Copilot process holds
+ * `inuse.<pid>.lock` on every session it spawned, so liveness over-reports.
+ *
+ * Group live sessions by their holder PID; the PRIMARY (most-recently-updated)
+ * session of each PID represents one open terminal, and the rest are its
+ * children. The number of distinct primaries is the honest "open" count.
+ */
+export function annotateOpen(sessions: DiscoveredSession[]): OpenAnnotation {
+  const live = sessions.filter((s) => s.liveness === "live" && s.livePids.length > 0);
+
+  const pidToSessions = new Map<number, DiscoveredSession[]>();
+  for (const s of live) {
+    for (const pid of s.livePids) {
+      const arr = pidToSessions.get(pid);
+      if (arr) arr.push(s);
+      else pidToSessions.set(pid, [s]);
+    }
+  }
+
+  const primaryIdByPid = new Map<number, string>();
+  for (const [pid, list] of pidToSessions) {
+    let best = list[0];
+    for (const s of list) {
+      if (updatedMillis(s) >= updatedMillis(best)) best = s;
+    }
+    primaryIdByPid.set(pid, best.id);
+  }
+
+  const primaryIds = new Set(primaryIdByPid.values());
+  const roleById = new Map<string, "primary" | "child">();
+  const groupPidById = new Map<string, number>();
+  const childrenById = new Map<string, string[]>();
+
+  for (const s of live) {
+    if (primaryIds.has(s.id)) {
+      roleById.set(s.id, "primary");
+      const ownPid = s.livePids.find((p) => primaryIdByPid.get(p) === s.id);
+      if (ownPid !== undefined) groupPidById.set(s.id, ownPid);
+      if (!childrenById.has(s.id)) childrenById.set(s.id, []);
+    } else {
+      roleById.set(s.id, "child");
+      groupPidById.set(s.id, s.livePids[0]);
+    }
+  }
+
+  // Attach each child to the primary of a PID it shares.
+  for (const s of live) {
+    if (roleById.get(s.id) !== "child") continue;
+    for (const pid of s.livePids) {
+      const primaryId = primaryIdByPid.get(pid);
+      if (primaryId && primaryId !== s.id) {
+        const kids = childrenById.get(primaryId);
+        if (kids && !kids.includes(s.id)) kids.push(s.id);
+        break;
+      }
+    }
+  }
+
+  return { roleById, groupPidById, childrenById, openCount: primaryIds.size };
+}

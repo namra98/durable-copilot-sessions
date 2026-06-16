@@ -8,7 +8,7 @@ import type {
   WindowTarget,
 } from "../types.js";
 import { renderLaunchScript, writeLaunchScript } from "./script.js";
-import { buildWindowArgs, resolveLaunchCwd } from "./wt.js";
+import { buildWindowArgs, resolveExecutable, resolveLaunchCwd } from "./wt.js";
 /**
  * High-level entry points that turn launch specs into running Windows Terminal
  * windows. The actual process spawn is injectable so callers (and tests) can
@@ -24,10 +24,18 @@ export interface ExecResult {
 /** Injectable executor for `wt.exe`. */
 export type ExecFn = (args: string[]) => ExecResult;
 
+/** Injectable executable resolver (defaults to the PATHEXT-aware resolver). */
+export type ResolveFn = (name: string) => string | undefined;
+
 interface LauncherDeps {
   scriptDir?: string;
   exec?: ExecFn;
+  resolve?: ResolveFn;
 }
+
+const WT_NOT_FOUND = "Windows Terminal (wt.exe) was not found on PATH";
+const COPILOT_NOT_FOUND =
+  "copilot CLI was not found on PATH; the resumed tab may fail to start Copilot.";
 
 function defaultExec(args: string[]): ExecResult {
   const result = spawnSync("wt.exe", args, { windowsHide: false });
@@ -40,6 +48,21 @@ function isFailure(result: ExecResult): boolean {
 
 function execErrorMessage(result: ExecResult): string {
   return result.error?.message ?? `wt.exe exited with code ${result.status}`;
+}
+
+/**
+ * Launch preflight: confirm `wt` and `copilot` resolve. A missing `wt` is fatal
+ * (the spawn cannot succeed); a missing `copilot` is a non-fatal warning since
+ * the script may still find it via a profile or shim at runtime.
+ */
+function checkLaunchExecutables(resolve: ResolveFn): {
+  wtMissing: boolean;
+  copilotWarning?: string;
+} {
+  return {
+    wtMissing: !resolve("wt"),
+    copilotWarning: resolve("copilot") ? undefined : COPILOT_NOT_FOUND,
+  };
 }
 
 /**
@@ -62,11 +85,27 @@ export function resumeSession(opts: ResumeOptions, deps: LauncherDeps = {}): Lau
   };
   const target: WindowTarget = opts.window ?? "new";
 
+  const resolve = deps.resolve ?? ((name: string) => resolveExecutable(name));
+  const { wtMissing, copilotWarning } = checkLaunchExecutables(resolve);
+  if (copilotWarning) {
+    warnings.push(copilotWarning);
+  }
+
   const scriptPath = writeLaunchScript(renderLaunchScript(tab), deps.scriptDir);
   const args = buildWindowArgs(target, [{ spec: tab, scriptPath }]);
 
   if (opts.dryRun) {
     return { ok: true, tabsLaunched: 1, windowsOpened: 1, warnings };
+  }
+
+  if (wtMissing) {
+    return {
+      ok: false,
+      tabsLaunched: 0,
+      windowsOpened: 0,
+      warnings,
+      error: WT_NOT_FOUND,
+    };
   }
 
   const exec = deps.exec ?? defaultExec;
@@ -95,8 +134,23 @@ export function launchWindows(
 ): LaunchResult {
   const warnings: string[] = [];
   const exec = opts.exec ?? defaultExec;
+  const resolve = opts.resolve ?? ((name: string) => resolveExecutable(name));
   let tabsLaunched = 0;
   let windowsOpened = 0;
+
+  const { wtMissing, copilotWarning } = checkLaunchExecutables(resolve);
+  if (copilotWarning) {
+    warnings.push(copilotWarning);
+  }
+  if (wtMissing && !opts.dryRun) {
+    return {
+      ok: false,
+      tabsLaunched: 0,
+      windowsOpened: 0,
+      warnings,
+      error: WT_NOT_FOUND,
+    };
+  }
 
   for (let i = 0; i < windows.length; i++) {
     const win = windows[i];

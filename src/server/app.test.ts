@@ -10,6 +10,18 @@ function makeFakeManager(): SessionManager {
     listSessions: (filter: string) => [
       { id: "s1", cwd: "C:/x", cwdExists: true, liveness: "live", livePids: [1], topLevel: true, managed: false, _filter: filter },
     ],
+    listSessionsResult: (filter: string) => ({
+      sessions: [
+        { id: "s1", cwd: "C:/x", cwdExists: true, liveness: "live", livePids: [1], topLevel: true, managed: false, role: "primary", childCount: 0, _filter: filter },
+      ],
+      openCount: 1,
+    }),
+    resumeMany: (ids: string[]) => ({
+      ok: true,
+      tabsLaunched: ids.length,
+      windowsOpened: 1,
+      warnings: [],
+    }),
     updateManaged: (id: string, patch: Record<string, unknown>) => ({
       id,
       cwd: "C:/x",
@@ -82,9 +94,21 @@ describe("server API", () => {
 
   it("GET /api/sessions returns sessions array", async () => {
     const res = await fetch(`${base}/api/sessions?filter=live`);
-    const body = (await res.json()) as { sessions: Array<{ id: string }> };
+    const body = (await res.json()) as { sessions: Array<{ id: string }>; openCount: number };
     expect(Array.isArray(body.sessions)).toBe(true);
     expect(body.sessions[0].id).toBe("s1");
+    expect(body.openCount).toBe(1);
+  });
+
+  it("POST /api/sessions/resume-batch resumes multiple sessions", async () => {
+    const res = await fetch(`${base}/api/sessions/resume-batch`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sessionIds: ["a", "b", "c"] }),
+    });
+    const body = (await res.json()) as { ok: boolean; tabsLaunched: number };
+    expect(body.ok).toBe(true);
+    expect(body.tabsLaunched).toBe(3);
   });
 
   it("POST /api/sessions/:id/resume returns a LaunchResult", async () => {

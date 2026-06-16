@@ -31,10 +31,22 @@ export type SessionView = DiscoveredSession & {
   hidden?: boolean;
   /** Whether tool-managed metadata exists for this session. */
   managed: boolean;
+  /** "primary" = one open terminal's foreground session; "child" = co-located. */
+  role?: "primary" | "child";
+  /** Holder PID used to group this live session with its siblings. */
+  groupPid?: number;
+  /** For a primary: how many child (subagent/background) sessions it holds. */
+  childCount?: number;
 };
 
 /** Liveness filter accepted by the sessions and workspace-capture endpoints. */
-export type SessionFilter = "live" | "all";
+export type SessionFilter = "open" | "live" | "all";
+
+/** The sessions list plus the honest count of distinct open terminals. */
+export interface SessionListResult {
+  sessions: SessionView[];
+  openCount: number;
+}
 
 /** Health probe payload. */
 export interface HealthResponse {
@@ -58,6 +70,12 @@ export interface ResumeBody {
   color?: TabColor;
   title?: string;
   cwd?: string;
+}
+
+/** Body for `POST /api/sessions/resume-batch`. */
+export interface ResumeBatchBody {
+  sessionIds: string[];
+  window?: WindowTarget;
 }
 
 /** Body for `POST /api/workspaces`. */
@@ -107,12 +125,12 @@ export function getHealth(): Promise<HealthResponse> {
   return request<HealthResponse>("/health");
 }
 
-/** `GET /api/sessions?filter=…` -> the session list. */
-export async function listSessions(filter: SessionFilter): Promise<SessionView[]> {
-  const data = await request<{ sessions: SessionView[] }>(
+/** `GET /api/sessions?filter=…` -> the session list plus the open-terminal count. */
+export async function listSessions(filter: SessionFilter): Promise<SessionListResult> {
+  const data = await request<{ sessions: SessionView[]; openCount?: number }>(
     `/sessions?filter=${encodeURIComponent(filter)}`,
   );
-  return data.sessions;
+  return { sessions: data.sessions, openCount: data.openCount ?? data.sessions.length };
 }
 
 /** `PATCH /api/sessions/:id` -> the updated session. */
@@ -127,6 +145,15 @@ export async function patchSession(id: string, patch: SessionPatch): Promise<Ses
 /** `POST /api/sessions/:id/resume` -> the launch result. */
 export function resumeSession(id: string, body: ResumeBody): Promise<LaunchResult> {
   return request<LaunchResult>(`/sessions/${encodeURIComponent(id)}/resume`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** `POST /api/sessions/resume-batch` -> the launch result for the whole group. */
+export function resumeBatch(sessionIds: string[], window?: WindowTarget): Promise<LaunchResult> {
+  const body: ResumeBatchBody = { sessionIds, window };
+  return request<LaunchResult>("/sessions/resume-batch", {
     method: "POST",
     body: JSON.stringify(body),
   });

@@ -21,7 +21,7 @@ import {
   resumeSession as defaultResume,
   launchWindows as defaultLaunchWindows,
 } from "./launch/index.js";
-import { buildWindows } from "./snapshot/grouping.js";
+import { buildWindows, annotateOpen, type OpenAnnotation } from "./snapshot/grouping.js";
 
 /** A discovered session merged with the tool's managed metadata, for API/UI use. */
 export type SessionView = DiscoveredSession & {
@@ -31,9 +31,21 @@ export type SessionView = DiscoveredSession & {
   pinned?: boolean;
   hidden?: boolean;
   managed: boolean;
+  /** "primary" = one open terminal's foreground session; "child" = co-located. */
+  role?: "primary" | "child";
+  /** Holder PID used to group this live session. */
+  groupPid?: number;
+  /** For a primary: how many child (subagent/background) sessions it holds. */
+  childCount?: number;
 };
 
-export type SessionFilter = "live" | "all";
+export type SessionFilter = "open" | "live" | "all";
+
+/** A session list plus the honest count of distinct open terminals. */
+export interface SessionListResult {
+  sessions: SessionView[];
+  openCount: number;
+}
 
 /** Injectable dependencies (defaults wire to the real modules; tests inject fakes). */
 export interface ManagerDeps {
@@ -85,7 +97,12 @@ export class SessionManager {
     return map;
   }
 
-  private toView(s: DiscoveredSession, managed: ManagedSession | undefined): SessionView {
+  private toView(
+    s: DiscoveredSession,
+    managed: ManagedSession | undefined,
+    ann?: OpenAnnotation,
+  ): SessionView {
+    const role = ann?.roleById.get(s.id);
     return {
       ...s,
       title: managed?.title,
@@ -94,16 +111,34 @@ export class SessionManager {
       pinned: managed?.pinned,
       hidden: managed?.hidden,
       managed: managed !== undefined,
+      role,
+      groupPid: ann?.groupPidById.get(s.id),
+      childCount: role === "primary" ? ann?.childrenById.get(s.id)?.length ?? 0 : undefined,
     };
   }
 
-  /** List discovered sessions (merged with managed metadata). */
-  listSessions(filter: SessionFilter = "all"): SessionView[] {
+  /** List sessions (merged with managed metadata) plus the open-terminal count. */
+  listSessionsResult(filter: SessionFilter = "open"): SessionListResult {
     const managed = this.managedMap();
-    const sessions = this.discover();
-    const filtered =
-      filter === "live" ? sessions.filter((s) => s.liveness === "live") : sessions;
-    return filtered.map((s) => this.toView(s, managed.get(s.id)));
+    const all = this.discover({ liveOnly: filter !== "all" });
+    const ann = annotateOpen(all);
+    let selected: DiscoveredSession[];
+    if (filter === "open") {
+      selected = all.filter((s) => ann.roleById.get(s.id) === "primary");
+    } else if (filter === "live") {
+      selected = all.filter((s) => s.liveness === "live");
+    } else {
+      selected = all;
+    }
+    return {
+      sessions: selected.map((s) => this.toView(s, managed.get(s.id), ann)),
+      openCount: ann.openCount,
+    };
+  }
+
+  /** List discovered sessions (array form, e.g. for the CLI). */
+  listSessions(filter: SessionFilter = "open"): SessionView[] {
+    return this.listSessionsResult(filter).sessions;
   }
 
   /** Update tool-managed metadata for a session and return the merged view. */
@@ -144,7 +179,7 @@ export class SessionManager {
     const title =
       opts.title ?? managed?.title ?? discovered?.name ?? opts.sessionId.slice(0, 8);
     const color = opts.color ?? managed?.color ?? "blue";
-    return this.resumeFn({
+    const result = this.resumeFn({
       sessionId: opts.sessionId,
       cwd,
       fallbacks,
@@ -154,14 +189,46 @@ export class SessionManager {
       copilotArgs: opts.copilotArgs,
       dryRun: opts.dryRun,
     });
+    // Warn (don't block) when the session already appears open in a live terminal.
+    if (discovered?.liveness === "live" && discovered.livePids.length > 0) {
+      result.warnings = [
+        `Session "${title}" appears to already be open in a live terminal (pid ${discovered.livePids.join(", ")}); opening another tab may contend with it.`,
+        ...result.warnings,
+      ];
+    }
+    return result;
   }
 
-  /** Build the current live (or full) layout as windows + tabs. */
-  captureLayout(filter: SessionFilter = "live"): WindowSpec[] {
+  /** Resume several sessions together as one grouped Windows Terminal window. */
+  resumeMany(
+    sessionIds: string[],
+    opts?: { window?: WindowTarget; dryRun?: boolean },
+  ): LaunchResult {
     const managed = this.managedMap();
-    const sessions = this.discover()
-      .filter((s) => (filter === "live" ? s.liveness === "live" : true))
-      .filter((s) => s.topLevel)
+    const tabs = sessionIds.map((id) => {
+      const d = this.getSessionFn(id);
+      const m = managed.get(id);
+      return {
+        sessionId: id,
+        title: m?.title ?? d?.name ?? id.slice(0, 8),
+        color: m?.color ?? "blue",
+        cwd: d?.cwd ?? os.homedir(),
+      };
+    });
+    if (tabs.length === 0) {
+      return { ok: false, tabsLaunched: 0, windowsOpened: 0, warnings: [], error: "No sessions to resume" };
+    }
+    const window: WindowSpec = { id: "w0", label: "resume", tabs };
+    return this.launchWindowsFn([window], { window: opts?.window, dryRun: opts?.dryRun });
+  }
+
+  /** Build the current open layout (one tab per open terminal) as windows + tabs. */
+  captureLayout(_filter: SessionFilter = "open"): WindowSpec[] {
+    const managed = this.managedMap();
+    const all = this.discover({ liveOnly: true });
+    const ann = annotateOpen(all);
+    const sessions = all
+      .filter((s) => ann.roleById.get(s.id) === "primary")
       .filter((s) => !managed.get(s.id)?.hidden);
     return buildWindows(sessions, managed, this.config);
   }

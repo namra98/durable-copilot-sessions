@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import type { AppConfig, LaunchResult, WindowTarget, Workspace } from "../core/types";
 import * as api from "./api/client";
@@ -9,11 +9,33 @@ import type {
   SessionView,
 } from "./api/client";
 import { SessionCard } from "./components/SessionCard";
+import { SkeletonGrid } from "./components/SkeletonCard";
+import { Toolbar, type Grouping } from "./components/Toolbar";
 import { WorkspacePanel } from "./components/WorkspacePanel";
 import { ToastStack, useToasts } from "./components/Toast";
 import { resolveColor } from "./lib/colors";
+import { useLocalStorage } from "./lib/useLocalStorage";
+import {
+  applyQuickFilters,
+  childrenOf,
+  groupByRepo,
+  searchSessions,
+  sortSessions,
+  type QuickFilter,
+  type SortKey,
+} from "./lib/sessions";
 
 const AUTO_REFRESH_MS = 15000;
+const SEARCH_DEBOUNCE_MS = 200;
+
+interface SessionData {
+  open: SessionView[];
+  live: SessionView[];
+  all: SessionView[];
+  openCount: number;
+}
+
+const EMPTY_DATA: SessionData = { open: [], live: [], all: [], openCount: 0 };
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -28,11 +50,11 @@ function describeLaunch(result: LaunchResult): string {
 export function App() {
   const { toasts, push, dismiss } = useToasts();
 
-  const [filter, setFilter] = useState<SessionFilter>("live");
+  const [filter, setFilter] = useState<SessionFilter>("open");
   const [windowTarget, setWindowTarget] = useState<WindowTarget>("new");
   const [showHidden, setShowHidden] = useState(false);
 
-  const [sessions, setSessions] = useState<SessionView[]>([]);
+  const [data, setData] = useState<SessionData>(EMPTY_DATA);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [version, setVersion] = useState("");
@@ -43,6 +65,37 @@ export function App() {
   const [globalBusy, setGlobalBusy] = useState(false);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
 
+  // Toolbar + view state (some persisted across reloads).
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useLocalStorage<SortKey>("dcs.sort", "recent");
+  const [grouping, setGrouping] = useLocalStorage<Grouping>("dcs.grouping", "flat");
+  const [quickFilters, setQuickFilters] = useState<QuickFilter[]>([]);
+  const [expandedCards, setExpandedCards] = useLocalStorage<string[]>("dcs.expandedCards", []);
+  const [collapsedGroups, setCollapsedGroups] = useLocalStorage<string[]>("dcs.collapsedGroups", []);
+
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // Debounce the search box.
+  useEffect(() => {
+    const id = window.setTimeout(() => setSearch(searchInput), SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(id);
+  }, [searchInput]);
+
+  // "/" focuses the search box (unless already typing in a field).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "/") return;
+      const el = document.activeElement;
+      const tag = el?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      e.preventDefault();
+      searchRef.current?.focus();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
   // One-time: load config + server health for the header.
   useEffect(() => {
     api.getConfig().then(setConfig).catch(() => undefined);
@@ -52,17 +105,23 @@ export function App() {
       .catch(() => undefined);
   }, []);
 
-  // Load sessions + workspaces on mount and whenever the filter changes.
+  const loadAll = useCallback(async (): Promise<void> => {
+    const [open, live, all, ws] = await Promise.all([
+      api.listSessions("open"),
+      api.listSessions("live"),
+      api.listSessions("all"),
+      api.listWorkspaces(),
+    ]);
+    setData({ open: open.sessions, live: live.sessions, all: all.sessions, openCount: open.openCount });
+    setWorkspaces(ws);
+  }, []);
+
+  // Initial load.
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([api.listSessions(filter), api.listWorkspaces()])
-      .then(([s, w]) => {
-        if (cancelled) return;
-        setSessions(s);
-        setWorkspaces(w);
-      })
+    loadAll()
       .catch((err) => {
         if (!cancelled) setError(errorMessage(err));
       })
@@ -72,16 +131,20 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [filter]);
+  }, [loadAll]);
 
   // Silent auto-refresh.
   useEffect(() => {
     const id = window.setInterval(() => {
-      api.listSessions(filter).then(setSessions).catch(() => undefined);
-      api.listWorkspaces().then(setWorkspaces).catch(() => undefined);
+      loadAll().catch(() => undefined);
     }, AUTO_REFRESH_MS);
     return () => window.clearInterval(id);
-  }, [filter]);
+  }, [loadAll]);
+
+  // Reflect the honest open count in the document title.
+  useEffect(() => {
+    document.title = `${data.openCount} open · Durable Copilot Sessions`;
+  }, [data.openCount]);
 
   const setBusy = useCallback((id: string, value: boolean) => {
     setBusyIds((curr) => ({ ...curr, [id]: value }));
@@ -102,31 +165,41 @@ export function App() {
   const manualRefresh = useCallback(async () => {
     setError(null);
     try {
-      const [s, w] = await Promise.all([api.listSessions(filter), api.listWorkspaces()]);
-      setSessions(s);
-      setWorkspaces(w);
+      await loadAll();
       push("info", "Refreshed.");
     } catch (err) {
       setError(errorMessage(err));
       push("error", `Refresh failed: ${errorMessage(err)}`);
     }
-  }, [filter, push]);
+  }, [loadAll, push]);
+
+  const patchEverywhere = useCallback(
+    (id: string, updater: (s: SessionView) => SessionView) => {
+      setData((curr) => ({
+        ...curr,
+        open: curr.open.map((s) => (s.id === id ? updater(s) : s)),
+        live: curr.live.map((s) => (s.id === id ? updater(s) : s)),
+        all: curr.all.map((s) => (s.id === id ? updater(s) : s)),
+      }));
+    },
+    [],
+  );
 
   const handlePatch = useCallback(
     async (id: string, patch: SessionPatch) => {
       setBusy(id, true);
-      setSessions((curr) => curr.map((s) => (s.id === id ? { ...s, ...patch, managed: true } : s)));
+      patchEverywhere(id, (s) => ({ ...s, ...patch, managed: true }));
       try {
         const updated = await api.patchSession(id, patch);
-        setSessions((curr) => curr.map((s) => (s.id === id ? updated : s)));
+        patchEverywhere(id, (s) => ({ ...s, ...updated }));
       } catch (err) {
         push("error", `Update failed: ${errorMessage(err)}`);
-        api.listSessions(filter).then(setSessions).catch(() => undefined);
+        loadAll().catch(() => undefined);
       } finally {
         setBusy(id, false);
       }
     },
-    [filter, push, setBusy],
+    [loadAll, patchEverywhere, push, setBusy],
   );
 
   const handleResume = useCallback(
@@ -147,6 +220,22 @@ export function App() {
       }
     },
     [windowTarget, push, reportLaunch, setBusy],
+  );
+
+  const handleResumeGroup = useCallback(
+    async (label: string, ids: string[]) => {
+      if (ids.length === 0) return;
+      setGlobalBusy(true);
+      try {
+        const result = await api.resumeBatch(ids, windowTarget);
+        reportLaunch(result, `Resumed ${ids.length} from “${label}”`);
+      } catch (err) {
+        push("error", `Resume all failed: ${errorMessage(err)}`);
+      } finally {
+        setGlobalBusy(false);
+      }
+    },
+    [windowTarget, push, reportLaunch],
   );
 
   const handleRestore = useCallback(
@@ -211,17 +300,62 @@ export function App() {
     [push],
   );
 
-  const hiddenCount = useMemo(() => sessions.filter((s) => s.hidden).length, [sessions]);
+  const toggleExpand = useCallback(
+    (id: string) => {
+      setExpandedCards((curr) =>
+        curr.includes(id) ? curr.filter((x) => x !== id) : [...curr, id],
+      );
+    },
+    [setExpandedCards],
+  );
+
+  const toggleGroup = useCallback(
+    (key: string) => {
+      setCollapsedGroups((curr) =>
+        curr.includes(key) ? curr.filter((x) => x !== key) : [...curr, key],
+      );
+    },
+    [setCollapsedGroups],
+  );
+
+  const toggleQuick = useCallback((chip: QuickFilter) => {
+    setQuickFilters((curr) =>
+      curr.includes(chip) ? curr.filter((c) => c !== chip) : [...curr, chip],
+    );
+  }, []);
+
+  const activeList = filter === "open" ? data.open : filter === "live" ? data.live : data.all;
+
+  const hiddenCount = useMemo(() => activeList.filter((s) => s.hidden).length, [activeList]);
 
   const visibleSessions = useMemo(() => {
-    const list = sessions.filter((s) => showHidden || !s.hidden);
-    return list.slice().sort((a, b) => {
-      if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
-      const ta = a.updatedAt ? Date.parse(a.updatedAt) : 0;
-      const tb = b.updatedAt ? Date.parse(b.updatedAt) : 0;
-      return tb - ta;
-    });
-  }, [sessions, showHidden]);
+    const afterHidden = showHidden ? activeList : activeList.filter((s) => !s.hidden);
+    const searched = searchSessions(afterHidden, search);
+    const filtered = applyQuickFilters(searched, quickFilters);
+    return sortSessions(filtered, sort);
+  }, [activeList, showHidden, search, quickFilters, sort]);
+
+  const groups = useMemo(
+    () => (grouping === "by-repo" ? groupByRepo(visibleSessions) : []),
+    [grouping, visibleSessions],
+  );
+
+  const renderCard = (s: SessionView) => (
+    <SessionCard
+      key={s.id}
+      session={s}
+      busy={Boolean(busyIds[s.id]) || globalBusy}
+      expanded={expandedCards.includes(s.id)}
+      childSessions={childrenOf(s, data.live)}
+      childrenLoading={loading}
+      onToggleExpand={toggleExpand}
+      onResume={handleResume}
+      onPatch={handlePatch}
+    />
+  );
+
+  const isEmpty = !loading && visibleSessions.length === 0;
+  const filtersActive = search.trim() !== "" || quickFilters.length > 0;
 
   return (
     <div className="app">
@@ -238,23 +372,6 @@ export function App() {
         </div>
 
         <div className="topbar__controls">
-          <div className="seg" role="group" aria-label="Session filter">
-            <button
-              type="button"
-              className={`seg__btn${filter === "live" ? " seg__btn--on" : ""}`}
-              onClick={() => setFilter("live")}
-            >
-              Live only
-            </button>
-            <button
-              type="button"
-              className={`seg__btn${filter === "all" ? " seg__btn--on" : ""}`}
-              onClick={() => setFilter("all")}
-            >
-              All
-            </button>
-          </div>
-
           <label className="field">
             <span className="field__label">Open in</span>
             <select
@@ -284,6 +401,40 @@ export function App() {
         </div>
       </header>
 
+      <nav className="tabs" role="tablist" aria-label="Session view">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={filter === "open"}
+          className={`tab${filter === "open" ? " tab--on" : ""}`}
+          onClick={() => setFilter("open")}
+        >
+          <span className="tab__dot" aria-hidden="true" />
+          Open
+          <span className="tab__count tab__count--accent">{data.openCount}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={filter === "live"}
+          className={`tab${filter === "live" ? " tab--on" : ""}`}
+          onClick={() => setFilter("live")}
+        >
+          Live
+          <span className="tab__count">{data.live.length}</span>
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={filter === "all"}
+          className={`tab${filter === "all" ? " tab--on" : ""}`}
+          onClick={() => setFilter("all")}
+        >
+          All
+          <span className="tab__count">{data.all.length}</span>
+        </button>
+      </nav>
+
       {error && (
         <div className="banner banner--error" role="alert">
           <span>{error}</span>
@@ -297,7 +448,8 @@ export function App() {
         <section className="panel">
           <div className="panel__head">
             <h2>
-              Sessions <span className="count">{visibleSessions.length}</span>
+              {filter === "open" ? "Open terminals" : filter === "live" ? "Live sessions" : "All sessions"}{" "}
+              <span className="count">{visibleSessions.length}</span>
             </h2>
             {hiddenCount > 0 && (
               <label className="check">
@@ -311,22 +463,68 @@ export function App() {
             )}
           </div>
 
+          <Toolbar
+            search={searchInput}
+            onSearch={setSearchInput}
+            sort={sort}
+            onSort={setSort}
+            grouping={grouping}
+            onGrouping={setGrouping}
+            quickFilters={quickFilters}
+            onToggleQuick={toggleQuick}
+            searchRef={searchRef}
+          />
+
           {loading ? (
-            <p className="empty">Loading sessions…</p>
-          ) : visibleSessions.length === 0 ? (
-            <p className="empty">No {filter === "live" ? "live " : ""}sessions found.</p>
-          ) : (
-            <div className="grid">
-              {visibleSessions.map((s) => (
-                <SessionCard
-                  key={s.id}
-                  session={s}
-                  busy={Boolean(busyIds[s.id])}
-                  onResume={handleResume}
-                  onPatch={handlePatch}
-                />
-              ))}
+            <SkeletonGrid />
+          ) : isEmpty ? (
+            <EmptyState
+              filter={filter}
+              filtersActive={filtersActive}
+              onClear={() => {
+                setSearchInput("");
+                setQuickFilters([]);
+              }}
+              onRefresh={manualRefresh}
+            />
+          ) : grouping === "by-repo" ? (
+            <div className="groups">
+              {groups.map((g) => {
+                const collapsed = collapsedGroups.includes(g.key);
+                return (
+                  <section className="group" key={g.key}>
+                    <header className="group__head">
+                      <button
+                        type="button"
+                        className="group__toggle"
+                        aria-expanded={!collapsed}
+                        onClick={() => toggleGroup(g.key)}
+                      >
+                        <span
+                          className={`disclosure__caret${collapsed ? "" : " disclosure__caret--open"}`}
+                          aria-hidden="true"
+                        >
+                          ▸
+                        </span>
+                        <span className="group__name" title={g.label}>{g.label}</span>
+                        <span className="count">{g.sessions.length}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn--ghost group__resume-all"
+                        disabled={globalBusy}
+                        onClick={() => handleResumeGroup(g.label, g.sessions.map((s) => s.id))}
+                      >
+                        Resume all
+                      </button>
+                    </header>
+                    {!collapsed && <div className="grid">{g.sessions.map(renderCard)}</div>}
+                  </section>
+                );
+              })}
             </div>
+          ) : (
+            <div className="grid">{visibleSessions.map(renderCard)}</div>
           )}
         </section>
 
@@ -355,6 +553,39 @@ export function App() {
       )}
 
       <ToastStack toasts={toasts} onDismiss={dismiss} />
+    </div>
+  );
+}
+
+interface EmptyStateProps {
+  filter: SessionFilter;
+  filtersActive: boolean;
+  onClear: () => void;
+  onRefresh: () => void;
+}
+
+function EmptyState({ filter, filtersActive, onClear, onRefresh }: EmptyStateProps) {
+  if (filtersActive) {
+    return (
+      <div className="empty empty--cta">
+        <p className="empty__title">No sessions match your filters</p>
+        <p className="empty__sub">Try a different search or clear the active filters.</p>
+        <button type="button" className="btn btn--primary" onClick={onClear}>
+          Clear filters
+        </button>
+      </div>
+    );
+  }
+  const noun = filter === "open" ? "open terminals" : filter === "live" ? "live sessions" : "sessions";
+  return (
+    <div className="empty empty--cta">
+      <p className="empty__title">No {noun} found</p>
+      <p className="empty__sub">
+        Start a Copilot session in a terminal, or check again in a moment.
+      </p>
+      <button type="button" className="btn btn--primary" onClick={onRefresh}>
+        Refresh
+      </button>
     </div>
   );
 }
@@ -422,7 +653,7 @@ function SaveWorkspaceDialog({ defaultFilter, busy, onCancel, onSave }: SaveDial
             checked={fromLive}
             onChange={(e) => setFromLive(e.target.checked)}
           />
-          Capture the current live layout
+          Capture the current open layout
         </label>
 
         {fromLive && (
@@ -433,6 +664,7 @@ function SaveWorkspaceDialog({ defaultFilter, busy, onCancel, onSave }: SaveDial
               value={captureFilter}
               onChange={(e) => setCaptureFilter(e.target.value as SessionFilter)}
             >
+              <option value="open">Open terminals</option>
               <option value="live">Live sessions</option>
               <option value="all">All sessions</option>
             </select>

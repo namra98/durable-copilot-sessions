@@ -9,11 +9,16 @@ import {
   buildWindowArgs,
   resumeSession,
   launchWindows,
+  resolveExecutable,
+  preflight,
 } from "./index.js";
 import type { ExecResult } from "./index.js";
 import type { TabSpec, WindowSpec } from "../types.js";
 
 const createdDirs: string[] = [];
+
+/** A resolver that pretends every executable is present (hermetic launches). */
+const resolveAll = (name: string): string => `C:\\fake\\${name}.exe`;
 
 function tempScriptDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcs-launch-test-"));
@@ -109,7 +114,7 @@ describe("resumeSession", () => {
     };
     const result = resumeSession(
       { sessionId: "dryrun-session", dryRun: true },
-      { scriptDir: tempScriptDir(), exec },
+      { scriptDir: tempScriptDir(), exec, resolve: resolveAll },
     );
     expect(result.ok).toBe(true);
     expect(result.tabsLaunched).toBe(1);
@@ -124,7 +129,7 @@ describe("resumeSession", () => {
     };
     const result = resumeSession(
       { sessionId: "live-session", window: "new" },
-      { scriptDir: tempScriptDir(), exec },
+      { scriptDir: tempScriptDir(), exec, resolve: resolveAll },
     );
     expect(result.ok).toBe(true);
     expect(calls).toHaveLength(1);
@@ -144,7 +149,7 @@ describe("launchWindows", () => {
       { id: "w1", tabs: [{ sessionId: "s1", title: "s1", color: "blue", cwd: home }] },
       { id: "w2", tabs: [{ sessionId: "s2", title: "s2", color: "red", cwd: home }] },
     ];
-    const result = launchWindows(windows, { scriptDir: tempScriptDir(), exec });
+    const result = launchWindows(windows, { scriptDir: tempScriptDir(), exec, resolve: resolveAll });
     expect(result.ok).toBe(true);
     expect(calls).toHaveLength(2);
     expect(result.windowsOpened).toBe(2);
@@ -165,10 +170,129 @@ describe("execution policy and cwd fallback (review fixes)", () => {
     const missing = path.join(os.tmpdir(), `dcs-missing-${Date.now()}`);
     const result = resumeSession(
       { sessionId: "abc", cwd: missing, dryRun: true },
-      { scriptDir: tempScriptDir() },
+      { scriptDir: tempScriptDir(), resolve: resolveAll },
     );
     expect(result.ok).toBe(true);
     expect(result.warnings.length).toBeGreaterThan(0);
     expect(result.warnings[0]).toContain("does not exist");
+  });
+});
+
+describe("resolveExecutable (PATHEXT)", () => {
+  function tempPathDir(): string {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "dcs-path-test-"));
+    createdDirs.push(dir);
+    return dir;
+  }
+
+  it("finds a .cmd shim for a bare name using PATHEXT", () => {
+    const dir = tempPathDir();
+    const shim = path.join(dir, "copilot.cmd");
+    fs.writeFileSync(shim, "@echo off");
+    const env = { PATH: dir, PATHEXT: ".COM;.EXE;.CMD;.PS1" } as NodeJS.ProcessEnv;
+    expect(resolveExecutable("copilot", env)).toBe(shim);
+  });
+
+  it("finds a .ps1 shim and respects PATHEXT ordering", () => {
+    const dir = tempPathDir();
+    const shim = path.join(dir, "copilot.ps1");
+    fs.writeFileSync(shim, "# noop");
+    const env = { PATH: dir, PATHEXT: ".EXE;.PS1" } as NodeJS.ProcessEnv;
+    expect(resolveExecutable("copilot", env)).toBe(shim);
+  });
+
+  it("resolves a name that already carries an extension verbatim", () => {
+    const dir = tempPathDir();
+    const exe = path.join(dir, "wt.exe");
+    fs.writeFileSync(exe, "");
+    const env = { PATH: dir, PATHEXT: ".EXE" } as NodeJS.ProcessEnv;
+    expect(resolveExecutable("wt.exe", env)).toBe(exe);
+  });
+
+  it("returns undefined for an injected env when the executable is absent", () => {
+    const dir = tempPathDir();
+    const env = { PATH: dir, PATHEXT: ".EXE;.CMD" } as NodeJS.ProcessEnv;
+    expect(resolveExecutable("does-not-exist", env)).toBeUndefined();
+  });
+
+  it("does not match a .cmd when PATHEXT omits .CMD", () => {
+    const dir = tempPathDir();
+    fs.writeFileSync(path.join(dir, "copilot.cmd"), "@echo off");
+    const env = { PATH: dir, PATHEXT: ".EXE" } as NodeJS.ProcessEnv;
+    expect(resolveExecutable("copilot", env)).toBeUndefined();
+  });
+});
+
+describe("preflight", () => {
+  it("reports both names missing when nothing resolves", () => {
+    const result = preflight({ resolve: () => undefined });
+    expect(result.ok).toBe(false);
+    expect(result.missing).toEqual(["wt", "copilot"]);
+  });
+
+  it("reports only copilot missing when wt resolves", () => {
+    const result = preflight({
+      resolve: (name) => (name === "wt" ? "C:\\wt.exe" : undefined),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.missing).toEqual(["copilot"]);
+  });
+
+  it("is ok when both resolve", () => {
+    const result = preflight({ resolve: (name) => `C:\\${name}.exe` });
+    expect(result.ok).toBe(true);
+    expect(result.missing).toEqual([]);
+  });
+});
+
+describe("launcher executable preflight", () => {
+  it("returns a clear wt.exe-not-found error instead of an opaque spawn failure", () => {
+    let execCalls = 0;
+    const result = resumeSession(
+      { sessionId: "s", window: "new" },
+      {
+        scriptDir: tempScriptDir(),
+        exec: () => {
+          execCalls += 1;
+          return { status: 0 };
+        },
+        resolve: () => undefined,
+      },
+    );
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("Windows Terminal (wt.exe) was not found on PATH");
+    expect(execCalls).toBe(0);
+  });
+
+  it("adds a copilot warning when only copilot is missing", () => {
+    const result = resumeSession(
+      { sessionId: "s", window: "new" },
+      {
+        scriptDir: tempScriptDir(),
+        exec: () => ({ status: 0 }),
+        resolve: (name) => (name === "copilot" ? undefined : `C:\\${name}.exe`),
+      },
+    );
+    expect(result.ok).toBe(true);
+    expect(result.warnings.some((w) => /copilot/i.test(w))).toBe(true);
+  });
+
+  it("launchWindows fails fast when wt.exe cannot be resolved", () => {
+    const home = os.homedir();
+    const windows: WindowSpec[] = [
+      { id: "w1", tabs: [{ sessionId: "s1", title: "s1", color: "blue", cwd: home }] },
+    ];
+    let execCalls = 0;
+    const result = launchWindows(windows, {
+      scriptDir: tempScriptDir(),
+      exec: () => {
+        execCalls += 1;
+        return { status: 0 };
+      },
+      resolve: () => undefined,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe("Windows Terminal (wt.exe) was not found on PATH");
+    expect(execCalls).toBe(0);
   });
 });
