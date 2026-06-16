@@ -11,6 +11,8 @@ export const defaultConfig: AppConfig = {
   colorStrategy: "by-repo",
   autoOpenBrowser: true,
   windowGrouping: "by-repo",
+  copilotCommand: "copilot",
+  copilotArgs: [],
 };
 
 /**

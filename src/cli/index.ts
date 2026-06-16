@@ -2,14 +2,12 @@
 import { Command } from "commander";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { spawnSync } from "node:child_process";
 import { SessionManager } from "../core/manager.js";
 import type { SessionView } from "../core/manager.js";
 import type { LaunchResult, Workspace } from "../core/types.js";
 import { startServer } from "../server/index.js";
 import { ensureStateDirs } from "../core/paths.js";
 import { log } from "../core/logger.js";
-import { buildWindowArgs, writeLaunchScript } from "../core/launch/index.js";
 import { installTasks, uninstallTasks, tasksStatus } from "../scheduling/index.js";
 import { runDoctor } from "../core/doctor/index.js";
 
@@ -52,23 +50,6 @@ function printSessions(
   } else {
     console.log(`\n${sessions.length} session(s).`);
   }
-}
-
-/** PowerShell launch script for a brand-new (non-resume) Copilot session. */
-function renderNewSessionScript(cwd: string, prompt?: string): string {
-  const q = (v: string): string => `'${v.replace(/'/g, "''")}'`;
-  const lines = [
-    "$launchScriptPath = $PSCommandPath",
-    'if ($launchScriptPath) { Remove-Item -LiteralPath $launchScriptPath -Force -ErrorAction Continue }',
-    '$ErrorActionPreference = "Stop"',
-    `Set-Location -LiteralPath ${q(cwd)}`,
-  ];
-  if (prompt && prompt.trim() !== "") {
-    lines.push(`& 'copilot' '-i' ${q(prompt)}`);
-  } else {
-    lines.push("& 'copilot'");
-  }
-  return lines.join("\r\n") + "\r\n";
 }
 
 function resolveCliCommand(sub: string): string {
@@ -298,19 +279,20 @@ function buildProgram(): Command {
     .option("--color <color>", "tab color", "blue")
     .option("--prompt <text>", "initial prompt to submit")
     .action((title: string, opts: { cwd: string; color: string; prompt?: string }) => {
-      const cwd = path.resolve(opts.cwd);
-      const script = renderNewSessionScript(cwd, opts.prompt);
-      const scriptPath = writeLaunchScript(script);
-      const args = buildWindowArgs("new", [
-        { spec: { sessionId: "new", title, color: opts.color, cwd }, scriptPath },
-      ]);
-      const r = spawnSync("wt.exe", args, { windowsHide: false });
-      if (r.status === 0) {
-        console.log(`Launched new session "${title}" in ${cwd}.`);
+      const mgr = new SessionManager();
+      const result = mgr.newSession({
+        title,
+        cwd: path.resolve(opts.cwd),
+        color: opts.color,
+        prompt: opts.prompt,
+      });
+      if (result.ok) {
+        console.log(`Launched new session "${title}" in ${path.resolve(opts.cwd)}.`);
       } else {
-        console.error(`Failed to launch wt.exe: ${r.error?.message ?? `exit ${r.status}`}`);
+        console.error(`Failed: ${result.error ?? "unknown error"}`);
         process.exitCode = 1;
       }
+      for (const w of result.warnings) console.warn(`  ! ${w}`);
     });
 
   program

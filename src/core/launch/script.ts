@@ -20,11 +20,14 @@ function singleQuote(value: string): string {
  * no I/O. The script self-deletes, hardens error handling, moves to the session
  * cwd, and runs `copilot [extraArgs...] --resume <sessionId>`.
  */
-export function renderLaunchScript(tab: TabSpec): string {
+export function renderLaunchScript(tab: TabSpec, command = "copilot"): string {
   const extraArgs = (tab.copilotArgs ?? []).map(singleQuote);
-  const copilotInvocation = ["& 'copilot'", ...extraArgs, "'--resume'", singleQuote(tab.sessionId)].join(
-    " ",
-  );
+  const copilotInvocation = [
+    `& ${singleQuote(command)}`,
+    ...extraArgs,
+    "'--resume'",
+    singleQuote(tab.sessionId),
+  ].join(" ");
 
   const lines = [
     "$ErrorActionPreference = 'Stop'",
@@ -45,14 +48,15 @@ export function renderLaunchScript(tab: TabSpec): string {
 export function renderNewSessionScript(
   cwd: string,
   prompt?: string,
+  command = "copilot",
   copilotArgs: string[] = [],
 ): string {
-  const extraArgs = copilotArgs.map(singleQuote);
+  const baseArgs = copilotArgs.map(singleQuote);
   const tail =
     prompt && prompt.trim()
-      ? [...extraArgs, "'-i'", singleQuote(prompt)]
-      : extraArgs;
-  const copilotInvocation = ["& 'copilot'", ...tail].join(" ");
+      ? [...baseArgs, "'-i'", singleQuote(prompt)]
+      : baseArgs;
+  const copilotInvocation = [`& ${singleQuote(command)}`, ...tail].join(" ");
 
   const lines = [
     "$ErrorActionPreference = 'Stop'",

@@ -204,7 +204,8 @@ export class SessionManager {
       title,
       color,
       window: opts.window ?? "new",
-      copilotArgs: opts.copilotArgs,
+      copilotArgs: [...this.config.copilotArgs, ...(opts.copilotArgs ?? [])],
+      copilotCommand: this.config.copilotCommand,
       dryRun: opts.dryRun,
     });
     // Warn (don't block) when the session already appears open in a live terminal.
@@ -237,7 +238,12 @@ export class SessionManager {
       return { ok: false, tabsLaunched: 0, windowsOpened: 0, warnings: [], error: "No sessions to resume" };
     }
     const window: WindowSpec = { id: "w0", label: "resume", tabs };
-    return this.launchWindowsFn([window], { window: opts?.window, dryRun: opts?.dryRun });
+    return this.launchWindowsFn([window], {
+      window: opts?.window,
+      dryRun: opts?.dryRun,
+      copilotCommand: this.config.copilotCommand,
+      copilotArgs: this.config.copilotArgs,
+    });
   }
 
   /** Build the current open layout (one tab per open terminal) as windows + tabs. */
@@ -294,7 +300,12 @@ export class SessionManager {
         error: `Workspace not found: ${id}`,
       };
     }
-    return this.launchWindowsFn(ws.windows, { window: opts?.window, dryRun: opts?.dryRun });
+    return this.launchWindowsFn(ws.windows, {
+      window: opts?.window,
+      dryRun: opts?.dryRun,
+      copilotCommand: this.config.copilotCommand,
+      copilotArgs: this.config.copilotArgs,
+    });
   }
 
   /** Restore a workspace by name or id (CLI convenience). */
@@ -382,6 +393,8 @@ export class SessionManager {
       color: opts.color,
       prompt: opts.prompt,
       window: opts.window,
+      copilotCommand: this.config.copilotCommand,
+      copilotArgs: this.config.copilotArgs,
     });
   }
 

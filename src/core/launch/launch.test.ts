@@ -70,6 +70,11 @@ describe("renderLaunchScript", () => {
     const script = renderLaunchScript({ ...baseTab, cwd: "C:\\o'brien" });
     expect(script).toContain("Set-Location -LiteralPath 'C:\\o''brien'");
   });
+
+  it("uses a custom launch command when provided", () => {
+    const script = renderLaunchScript({ ...baseTab, copilotArgs: ["copilot", "--yolo"] }, "agency");
+    expect(script).toContain("& 'agency' 'copilot' '--yolo' '--resume' '11112222-3333-4444'");
+  });
 });
 
 describe("escapeWtValue", () => {

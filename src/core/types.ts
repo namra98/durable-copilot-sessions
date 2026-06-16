@@ -153,6 +153,16 @@ export interface AppConfig {
   autoOpenBrowser: boolean;
   /** When grouping discovered sessions into windows, group tabs by this key. */
   windowGrouping: "by-repo" | "by-cwd" | "single";
+  /**
+   * Executable used to launch Copilot in a tab. Defaults to "copilot". Set to a
+   * wrapper (e.g. "agency") when Copilot is started through one.
+   */
+  copilotCommand: string;
+  /**
+   * Base arguments inserted before `--resume`/`-i` on every launch (e.g.
+   * ["copilot", "--mcp", "workiq", ..., "--yolo"] when copilotCommand is a wrapper).
+   */
+  copilotArgs: string[];
 }
 
 /** Result of launching one or more Windows Terminal tabs. */
@@ -179,6 +189,8 @@ export interface ResumeOptions {
   fallbacks?: string[];
   window?: WindowTarget;
   copilotArgs?: string[];
+  /** Executable used to launch Copilot (defaults to "copilot"). */
+  copilotCommand?: string;
   /** When true, build the command but do not execute wt.exe. */
   dryRun?: boolean;
 }

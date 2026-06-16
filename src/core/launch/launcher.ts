@@ -91,7 +91,7 @@ export function resumeSession(opts: ResumeOptions, deps: LauncherDeps = {}): Lau
     warnings.push(copilotWarning);
   }
 
-  const scriptPath = writeLaunchScript(renderLaunchScript(tab), deps.scriptDir);
+  const scriptPath = writeLaunchScript(renderLaunchScript(tab, opts.copilotCommand), deps.scriptDir);
   const args = buildWindowArgs(target, [{ spec: tab, scriptPath }]);
 
   if (opts.dryRun) {
@@ -131,6 +131,7 @@ export interface NewSessionOptions {
   prompt?: string;
   window?: WindowTarget;
   copilotArgs?: string[];
+  copilotCommand?: string;
   dryRun?: boolean;
 }
 
@@ -156,7 +157,7 @@ export function launchNewSession(opts: NewSessionOptions, deps: LauncherDeps = {
   }
 
   const scriptPath = writeLaunchScript(
-    renderNewSessionScript(resolved.cwd, opts.prompt, opts.copilotArgs ?? []),
+    renderNewSessionScript(resolved.cwd, opts.prompt, opts.copilotCommand, opts.copilotArgs ?? []),
     deps.scriptDir,
   );
   const args = buildWindowArgs(target, [{ spec, scriptPath }]);
@@ -182,7 +183,12 @@ export function launchNewSession(opts: NewSessionOptions, deps: LauncherDeps = {
  */
 export function launchWindows(
   windows: WindowSpec[],
-  opts: { window?: WindowTarget; dryRun?: boolean } & LauncherDeps = {},
+  opts: {
+    window?: WindowTarget;
+    dryRun?: boolean;
+    copilotCommand?: string;
+    copilotArgs?: string[];
+  } & LauncherDeps = {},
 ): LaunchResult {
   const warnings: string[] = [];
   const exec = opts.exec ?? defaultExec;
@@ -213,8 +219,15 @@ export function launchWindows(
       if (resolved.warning) {
         warnings.push(resolved.warning);
       }
-      const spec: TabSpec = { ...tab, cwd: resolved.cwd };
-      const scriptPath = writeLaunchScript(renderLaunchScript(spec), opts.scriptDir);
+      const spec: TabSpec = {
+        ...tab,
+        cwd: resolved.cwd,
+        copilotArgs: opts.copilotArgs ?? tab.copilotArgs,
+      };
+      const scriptPath = writeLaunchScript(
+        renderLaunchScript(spec, opts.copilotCommand),
+        opts.scriptDir,
+      );
       return { spec, scriptPath };
     });
 

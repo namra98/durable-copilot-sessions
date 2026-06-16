@@ -71,13 +71,9 @@ export function MemoryPanel({ windowTarget, push, relatedSeed, onClearRelated }:
     return () => window.clearTimeout(id);
   }, [queryInput]);
 
-  // Run a search whenever the debounced query or filters change.
+  // Run a search whenever the debounced query or filters change. An empty
+  // query loads the most recent memories so the panel is never blank.
   useEffect(() => {
-    if (query.trim() === "") {
-      setHits([]);
-      setSearchError(null);
-      return;
-    }
     let cancelled = false;
     setSearching(true);
     setSearchError(null);
@@ -272,33 +268,40 @@ export function MemoryPanel({ windowTarget, push, relatedSeed, onClearRelated }:
               <p className="empty__title">Memory search unavailable</p>
               <p className="empty__sub">{searchError}</p>
             </div>
-          ) : query.trim() === "" ? (
-            <div className="empty">
-              <p className="empty__title">Search your session memory</p>
-              <p className="empty__sub">
-                Find decisions, open todos, and learnings extracted from past sessions.
-              </p>
-            </div>
           ) : searching && hits.length === 0 ? (
             <div className="empty">
               <p className="empty__sub">Searching…</p>
             </div>
           ) : hits.length === 0 ? (
-            <div className="empty">
-              <p className="empty__sub">No memories match “{query.trim()}”.</p>
-            </div>
+            query.trim() === "" ? (
+              <div className="empty empty--cta">
+                <p className="empty__title">No memories indexed yet</p>
+                <p className="empty__sub">
+                  Click “Reindex memories” to build your recall index from past sessions.
+                </p>
+              </div>
+            ) : (
+              <div className="empty">
+                <p className="empty__sub">No memories match “{query.trim()}”.</p>
+              </div>
+            )
           ) : (
-            <div className="memgrid">
-              {hits.map((hit) => (
-                <MemoryCard
-                  key={hit.memory.id}
-                  memory={hit.memory}
-                  snippet={hit.snippet}
-                  score={hit.score}
-                  onResume={resume}
-                />
-              ))}
-            </div>
+            <>
+              {query.trim() === "" && (
+                <p className="mem-recent-label">Recent memories ({hits.length})</p>
+              )}
+              <div className="memgrid">
+                {hits.map((hit) => (
+                  <MemoryCard
+                    key={hit.memory.id}
+                    memory={hit.memory}
+                    snippet={hit.snippet}
+                    score={hit.score}
+                    onResume={resume}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </>
       ) : (
