@@ -39,6 +39,15 @@ interface SessionRow {
   updated_at?: unknown;
 }
 
+/** Raw turns row: one conversational exchange in a session. */
+interface TurnRow {
+  session_id?: unknown;
+  turn_index?: unknown;
+  user_message?: unknown;
+  assistant_response?: unknown;
+  timestamp?: unknown;
+}
+
 /** Parent session metadata indexed by session id, for joining checkpoints. */
 interface ParentMeta {
   repository?: string;
@@ -134,6 +143,46 @@ function joinContent(parts: Array<string | undefined>): string {
     .map((p) => (p ? p.trim() : ""))
     .filter((p) => p.length > 0)
     .join("\n\n");
+}
+
+/** Truncate to `max` characters with an ellipsis. */
+function truncate(value: string, max: number): string {
+  return value.length <= max ? value : value.slice(0, max - 1).trimEnd() + "…";
+}
+
+/**
+ * Emit a `chat` memory from a single conversation turn so any words the user
+ * discussed are searchable (and link back to the session to resume it).
+ */
+function memoryFromTurn(row: TurnRow, parents: Map<string, ParentMeta>): Memory | undefined {
+  const sessionId = str(row.session_id);
+  const userMessage = str(row.user_message);
+  if (!sessionId || !userMessage) {
+    return undefined;
+  }
+  const turnIndex = typeof row.turn_index === "number" ? row.turn_index : str(row.turn_index) ?? "0";
+  const parent = parents.get(sessionId) ?? {};
+  const assistant = str(row.assistant_response);
+  const content = joinContent([
+    truncate(userMessage, 2000),
+    assistant ? `→ ${truncate(assistant, 600)}` : undefined,
+  ]);
+  const firstLine = userMessage.split(/\r?\n/).find((l) => l.trim().length > 0) ?? userMessage;
+  const ts = toMillis(row.timestamp) || parent.updatedAt || parent.createdAt || 0;
+  return {
+    id: memoryId(sessionId, "chat", "turns", String(turnIndex)),
+    sessionId,
+    kind: "chat",
+    title: truncate(firstLine.trim(), 90),
+    content,
+    repository: parent.repository,
+    branch: parent.branch,
+    cwd: parent.cwd,
+    sourceTable: "turns",
+    sourceRef: String(turnIndex),
+    createdAt: ts,
+    updatedAt: ts,
+  };
 }
 
 /** Best-effort `SELECT *` over a table; returns [] when the table is absent. */
@@ -294,6 +343,19 @@ export function extractMemories(sourceDb: string = copilotSessionStoreDb): Memor
         }
       } catch {
         // One bad session must not abort extraction.
+      }
+    }
+
+    // Chat turns: index the actual conversation so any discussed words are
+    // searchable and link back to the session.
+    for (const raw of selectAll(db, "turns")) {
+      try {
+        const memory = memoryFromTurn(raw as TurnRow, parents);
+        if (memory) {
+          memories.push(memory);
+        }
+      } catch {
+        // One bad turn must not abort extraction.
       }
     }
   } catch {

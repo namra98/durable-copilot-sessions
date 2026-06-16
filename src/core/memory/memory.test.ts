@@ -301,3 +301,54 @@ describe("memory extractor + store", () => {
     expect(extractMemories(path.join(paths.base, "nope.db"))).toEqual([]);
   });
 });
+
+describe("chat-turn extraction + session-id search", () => {
+  function buildWithTurns(file: string): void {
+    const db: SqliteDatabase = openDatabase(file);
+    db.exec(`
+      CREATE TABLE sessions (
+        id TEXT PRIMARY KEY, cwd TEXT, repository TEXT, branch TEXT,
+        summary TEXT, created_at INTEGER, updated_at INTEGER, host_type TEXT
+      );
+      CREATE TABLE turns (
+        id TEXT, session_id TEXT, turn_index INTEGER,
+        user_message TEXT, assistant_response TEXT, timestamp INTEGER
+      );
+    `);
+    db.prepare(
+      `INSERT INTO sessions (id, cwd, repository, branch, summary, created_at, updated_at, host_type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).run("c214cb30-aaaa", "C:/Users/naprajap", null, null, "Review GitHub Commit Changes", 1_700_000_000_000, 1_700_000_100_000, "cli");
+    const t = db.prepare(
+      `INSERT INTO turns (id, session_id, turn_index, user_message, assistant_response, timestamp)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+    );
+    t.run("t0", "c214cb30-aaaa", 0, "I want this vscode extension for the postgresql dbagent setup", "Sure, cloning vs-code-postgresql", 1_700_000_010_000);
+    t.run("t1", "c214cb30-aaaa", 1, "yarn watch is failing in the extension host", "try yarn install first", 1_700_000_020_000);
+    db.close();
+  }
+
+  it("indexes chat turns, finds a session by discussed words, and by id", () => {
+    const base = path.join(os.tmpdir(), `dcs-mem-turns-${randomUUID()}`);
+    fs.mkdirSync(base, { recursive: true });
+    const src = path.join(base, "s.db");
+    const mem = path.join(base, "m.db");
+    buildWithTurns(src);
+
+    const store = createMemoryStore(mem);
+    const { count } = store.reindex(src);
+    // 1 summary + 2 chat memories.
+    expect(count).toBe(3);
+
+    const hits = store.search("vscode");
+    expect(hits.some((h) => h.memory.sessionId === "c214cb30-aaaa" && h.memory.kind === "chat")).toBe(true);
+
+    // Search by session id prefix returns only that session's memories.
+    const byId = store.search("c214cb30");
+    expect(byId.length).toBeGreaterThan(0);
+    expect(byId.every((h) => h.memory.sessionId === "c214cb30-aaaa")).toBe(true);
+
+    store.close();
+    fs.rmSync(base, { recursive: true, force: true });
+  });
+});

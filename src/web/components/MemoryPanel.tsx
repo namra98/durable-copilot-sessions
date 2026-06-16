@@ -12,9 +12,10 @@ import { relativeTime } from "../lib/format";
 
 const SEARCH_DEBOUNCE_MS = 250;
 
-const KINDS: MemoryKind[] = ["decision", "todo", "learning", "summary", "file_context"];
+const KINDS: MemoryKind[] = ["chat", "decision", "todo", "learning", "summary", "file_context"];
 
 const KIND_LABEL: Record<MemoryKind, string> = {
+  chat: "Chat",
   decision: "Decision",
   todo: "Todo",
   learning: "Learning",
@@ -230,7 +231,7 @@ export function MemoryPanel({ windowTarget, push, relatedSeed, onClearRelated }:
                 className="input toolbar__search-input"
                 type="search"
                 value={queryInput}
-                placeholder="Search decisions, todos, learnings…"
+                placeholder="Search anything you discussed, or paste a session id…"
                 aria-label="Search memories"
                 onChange={(e) => setQueryInput(e.target.value)}
               />

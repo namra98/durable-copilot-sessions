@@ -128,6 +128,15 @@ function sanitizeFtsQuery(query: string): string | undefined {
   return tokens.join(" ");
 }
 
+/** A query that looks like a session id (UUID) or hex id prefix (>= 8 hex chars). */
+function asSessionIdPrefix(query: string): string | undefined {
+  const q = query.trim().toLowerCase();
+  if (/^[0-9a-f]{8}[0-9a-f-]*$/.test(q) && q.replace(/-/g, "").length >= 8) {
+    return q;
+  }
+  return undefined;
+}
+
 /** Create (or open) a local memory store at `dbPath`. */
 export function createMemoryStore(dbPath: string = memoryDb): MemoryStore {
   const dir = path.dirname(dbPath);
@@ -208,6 +217,20 @@ export function createMemoryStore(dbPath: string = memoryDb): MemoryStore {
     query: string,
     opts?: { repository?: string; kind?: MemoryKind; limit?: number },
   ): MemorySearchHit[] {
+    // Searching a session id (or its prefix) returns that session's memories.
+    const sid = asSessionIdPrefix(query ?? "");
+    if (sid) {
+      const idRows = db
+        .prepare(
+          `SELECT * FROM memories WHERE lower(session_id) LIKE ? ORDER BY updated_at DESC LIMIT ?`,
+        )
+        .all(`${sid}%`, opts?.limit ?? 20) as MemoryRow[];
+      if (idRows.length > 0) {
+        return idRows.map((row) => ({ memory: rowToMemory(row), score: 0 }));
+      }
+      // No session matched; fall through to a normal text search.
+    }
+
     const match = sanitizeFtsQuery(query ?? "");
     if (!match) {
       return recentFiltered(opts);

@@ -1650,6 +1650,19 @@ body {
   background: var(--bg-elev-2);
 }
 
+.memchip--chat {
+  color: #b8e6ff;
+  background: rgba(56, 189, 248, 0.16);
+}
+
+.mem-recent-label {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 /* ---------- Recall + related ---------- */
 .recall {
   display: flex;

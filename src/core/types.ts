@@ -238,7 +238,7 @@ export interface GraphModel {
  * ------------------------------------------------------------------ */
 
 /** Classification of an extracted memory. */
-export type MemoryKind = "summary" | "decision" | "todo" | "learning" | "file_context";
+export type MemoryKind = "summary" | "decision" | "todo" | "learning" | "file_context" | "chat";
 
 /** A durable, recallable unit extracted from a session. */
 export interface Memory {
