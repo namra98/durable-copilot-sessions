@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import fs from "node:fs";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { SessionManager } from "../core/manager.js";
 import type { SessionView } from "../core/manager.js";
@@ -397,6 +398,26 @@ function buildProgram(): Command {
       );
       for (const e of d.missing) console.log(`  - missing: ${e.title}`);
       for (const e of d.staleCwd) console.log(`  ~ cwd:     ${e.title} (${e.detail})`);
+    });
+
+  program
+    .command("tray")
+    .description("Launch the always-on system tray (Windows PowerShell, STA)")
+    .action(() => {
+      const root = path.resolve(fileURLToPath(import.meta.url), "..", "..", "..");
+      const trayScript = path.join(root, "scripts", "tray.ps1");
+      if (!fs.existsSync(trayScript)) {
+        console.error(`Tray script not found: ${trayScript}`);
+        process.exitCode = 1;
+        return;
+      }
+      const child = spawn(
+        "powershell.exe",
+        ["-NoProfile", "-STA", "-ExecutionPolicy", "Bypass", "-File", trayScript],
+        { detached: true, stdio: "ignore" },
+      );
+      child.unref();
+      console.log("System tray started.");
     });
 
   program
