@@ -42,6 +42,10 @@ export type SessionView = DiscoveredSession & {
   groupPid?: number;
   /** For a primary: how many child (subagent/background) sessions it holds. */
   childCount?: number;
+  /** User-assigned tags for filtering/organization. */
+  tags?: string[];
+  /** Archived sessions are hidden from the default list (kept for history). */
+  archived?: boolean;
 };
 
 /** Liveness filter accepted by the sessions and workspace-capture endpoints. */
@@ -67,6 +71,8 @@ export interface SessionPatch {
   group?: string;
   pinned?: boolean;
   hidden?: boolean;
+  tags?: string[];
+  archived?: boolean;
 }
 
 /** Body for `POST /api/sessions/:id/resume`. */
@@ -123,6 +129,18 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(await extractError(res));
   }
   return (await res.json()) as T;
+}
+
+/** Like {@link request} but returns the raw response body as text (e.g. markdown). */
+async function requestText(path: string, init?: RequestInit): Promise<string> {
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: { ...(init?.headers ?? {}) },
+    ...init,
+  });
+  if (!res.ok) {
+    throw new Error(await extractError(res));
+  }
+  return res.text();
 }
 
 /** `GET /api/health` */
@@ -216,6 +234,151 @@ export async function snapshot(): Promise<Workspace> {
 export async function getConfig(): Promise<AppConfig> {
   const data = await request<{ config: AppConfig }>("/config");
   return data.config;
+}
+
+/** `PUT /api/config` -> the updated app configuration (accepts a partial patch). */
+export async function putConfig(patch: Partial<AppConfig>): Promise<AppConfig> {
+  const data = await request<{ config: AppConfig }>("/config", {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+  return data.config;
+}
+
+/* ------------------------------------------------------------------ *
+ * Insights / stats
+ * ------------------------------------------------------------------ */
+
+/** A single repository row in the stats roll-up. */
+export interface StatsRepo {
+  repository: string;
+  sessions: number;
+}
+
+/** A single day's session count in the activity series. */
+export interface StatsActivity {
+  date: string;
+  sessions: number;
+}
+
+/** Aggregate, read-only roll-up returned by `GET /api/stats`. */
+export interface StatsReport {
+  totalSessions: number;
+  totalCheckpoints: number;
+  totalTurns: number;
+  topRepos: StatsRepo[];
+  activityByDay: StatsActivity[];
+  generatedAt: string;
+}
+
+/** `GET /api/stats` -> the aggregate session-store roll-up. */
+export function getStats(): Promise<StatsReport> {
+  return request<StatsReport>("/stats");
+}
+
+/* ------------------------------------------------------------------ *
+ * Logs
+ * ------------------------------------------------------------------ */
+
+/** One parsed log line returned by `GET /api/logs`. */
+export interface LogRecord {
+  ts?: string;
+  level?: string;
+  message?: string;
+  scope?: string;
+  [k: string]: unknown;
+}
+
+/** `GET /api/logs?lines=&level=` -> the tail of the structured logs. */
+export async function getLogs(opts?: { lines?: number; level?: string }): Promise<LogRecord[]> {
+  const qs = new URLSearchParams();
+  if (opts?.lines !== undefined) qs.set("lines", String(opts.lines));
+  if (opts?.level) qs.set("level", opts.level);
+  const suffix = qs.toString() ? `?${qs.toString()}` : "";
+  const data = await request<{ logs: LogRecord[] }>(`/logs${suffix}`);
+  return data.logs;
+}
+
+/* ------------------------------------------------------------------ *
+ * Stale-session maintenance
+ * ------------------------------------------------------------------ */
+
+/** `GET /api/sessions/stale` -> sessions whose lock PIDs are dead. */
+export async function getStale(): Promise<SessionView[]> {
+  const data = await request<{ sessions: SessionView[] }>("/sessions/stale");
+  return data.sessions;
+}
+
+/** `POST /api/sessions/clean` -> the count of stale sessions (optionally removed). */
+export function cleanStale(remove = false): Promise<{ stale: number; removed: number }> {
+  return request<{ stale: number; removed: number }>("/sessions/clean", {
+    method: "POST",
+    body: JSON.stringify({ remove }),
+  });
+}
+
+/* ------------------------------------------------------------------ *
+ * Transcript
+ * ------------------------------------------------------------------ */
+
+/** `GET /api/sessions/:id/transcript` -> the session transcript as markdown. */
+export function getTranscript(id: string): Promise<string> {
+  return requestText(`/sessions/${encodeURIComponent(id)}/transcript`);
+}
+
+/* ------------------------------------------------------------------ *
+ * Snapshots / workspace export-import / diff / promote
+ * ------------------------------------------------------------------ */
+
+/** `GET /api/snapshots` -> the rolling auto-snapshots. */
+export async function listSnapshots(): Promise<Workspace[]> {
+  const data = await request<{ snapshots: Workspace[] }>("/snapshots");
+  return data.snapshots;
+}
+
+/** `GET /api/workspaces/export?ids=` -> the workspaces serialized as JSON text. */
+export function exportWorkspaces(ids?: string[]): Promise<string> {
+  const suffix = ids && ids.length ? `?ids=${encodeURIComponent(ids.join(","))}` : "";
+  return requestText(`/workspaces/export${suffix}`);
+}
+
+/** `POST /api/workspaces/import` -> the imported workspaces. */
+export async function importWorkspaces(json: string, freshIds = true): Promise<Workspace[]> {
+  const data = await request<{ workspaces: Workspace[] }>("/workspaces/import", {
+    method: "POST",
+    body: JSON.stringify({ json, freshIds }),
+  });
+  return data.workspaces;
+}
+
+/** One row in a workspace diff bucket. */
+export interface WorkspaceDiffEntry {
+  sessionId: string;
+  title: string;
+  detail: string;
+}
+
+/** Categorized result of `GET /api/workspaces/:id/diff`. */
+export interface WorkspaceDiff {
+  missing: WorkspaceDiffEntry[];
+  staleCwd: WorkspaceDiffEntry[];
+  changed: WorkspaceDiffEntry[];
+  addedLive: WorkspaceDiffEntry[];
+  unchanged: number;
+}
+
+/** `GET /api/workspaces/:id/diff` -> what changed since the snapshot was taken. */
+export function getWorkspaceDiff(id: string): Promise<WorkspaceDiff> {
+  return request<WorkspaceDiff>(`/workspaces/${encodeURIComponent(id)}/diff`);
+}
+
+/** `POST /api/workspaces/:id/promote` -> the promoted (durable) workspace. */
+export async function promoteSnapshot(id: string, name: string): Promise<Workspace> {
+  const data = await request<{ workspace: Workspace }>(
+    `/workspaces/${encodeURIComponent(id)}/promote`,
+    { method: "POST", body: JSON.stringify({ name }) },
+  );
+  return data.workspace;
 }
 
 /* ------------------------------------------------------------------ *

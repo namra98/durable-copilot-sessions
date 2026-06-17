@@ -6,6 +6,7 @@ import * as api from "../api/client";
 import type { SessionPatch, SessionView } from "../api/client";
 import { resolveColor } from "../lib/colors";
 import { displayName } from "../lib/sessions";
+import { triggerDownload } from "../lib/download";
 import { absoluteTime, relativeTime, shortId } from "../lib/format";
 import type { PushOptions, ToastKind } from "./Toast";
 import { ColorPopover } from "./ColorPopover";
@@ -70,6 +71,7 @@ export function SessionDrawer(props: SessionDrawerProps) {
   const [forkOpen, setForkOpen] = useState(false);
   const [forkNote, setForkNote] = useState("");
   const [forkLaunch, setForkLaunch] = useState(true);
+  const [tagDraft, setTagDraft] = useState("");
   const [busy, setBusy] = useState(false);
 
   const panelRef = useRef<HTMLDivElement>(null);
@@ -227,6 +229,42 @@ export function SessionDrawer(props: SessionDrawerProps) {
     }
   }, [forkLaunch, forkNote, onReload, push, session, windowTarget]);
 
+  const addTag = useCallback(() => {
+    if (!session) return;
+    const next = tagDraft.trim();
+    if (!next) return;
+    const existing = session.tags ?? [];
+    if (existing.includes(next)) {
+      setTagDraft("");
+      return;
+    }
+    applyPatch({ tags: [...existing, next] });
+    setTagDraft("");
+  }, [applyPatch, session, tagDraft]);
+
+  const removeTag = useCallback(
+    (tag: string) => {
+      if (!session) return;
+      const existing = session.tags ?? [];
+      applyPatch({ tags: existing.filter((t) => t !== tag) });
+    },
+    [applyPatch, session],
+  );
+
+  const downloadTranscript = useCallback(async () => {
+    if (!session) return;
+    setBusy(true);
+    try {
+      const md = await api.getTranscript(session.id);
+      triggerDownload(`${session.id}.md`, md, "text/markdown");
+      push("success", "Transcript downloaded.");
+    } catch (err) {
+      push("error", `Transcript failed: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  }, [push, session]);
+
   const color = session ? resolveColor(session) : "#4f8cff";
   const title = session ? displayName(session) : shortId(id);
   const childCount = session?.childCount ?? children.length;
@@ -368,6 +406,23 @@ export function SessionDrawer(props: SessionDrawerProps) {
                 onClick={() => applyPatch({ hidden: !session.hidden })}
               >
                 {session.hidden ? "Unhide" : "Hide"}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={busy}
+                onClick={() => applyPatch({ archived: !session.archived })}
+              >
+                {session.archived ? "Unarchive" : "Archive"}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={busy}
+                title="Download the session transcript as markdown"
+                onClick={() => void downloadTranscript()}
+              >
+                ⭳ Transcript
               </button>
               <button
                 type="button"
@@ -541,6 +596,58 @@ export function SessionDrawer(props: SessionDrawerProps) {
                   <p className="drawer__summary">{session.summary}</p>
                 </div>
               )}
+
+              <div className="drawer__section">
+                <h4 className="drawer__section-title">
+                  Tags
+                  {session.tags && session.tags.length > 0 && (
+                    <span className="count">{session.tags.length}</span>
+                  )}
+                </h4>
+                <div className="drawer__tags">
+                  {(session.tags ?? []).map((t) => (
+                    <span className="tagchip tagchip--removable" key={t}>
+                      {t}
+                      <button
+                        type="button"
+                        className="tagchip__remove"
+                        aria-label={`Remove tag ${t}`}
+                        disabled={busy}
+                        onClick={() => removeTag(t)}
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                  {(!session.tags || session.tags.length === 0) && (
+                    <span className="drawer__hint">No tags yet.</span>
+                  )}
+                </div>
+                <div className="drawer__tag-add">
+                  <input
+                    className="input"
+                    value={tagDraft}
+                    placeholder="add a tag…"
+                    aria-label="Add tag"
+                    disabled={busy}
+                    onChange={(e) => setTagDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addTag();
+                      }
+                    }}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn--xs"
+                    disabled={busy || !tagDraft.trim()}
+                    onClick={addTag}
+                  >
+                    Add
+                  </button>
+                </div>
+              </div>
 
               <div className="drawer__section">
                 <h4 className="drawer__section-title">

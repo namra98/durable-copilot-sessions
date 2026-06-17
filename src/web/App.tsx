@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import type { AppConfig, LaunchResult, WindowTarget, Workspace } from "../core/types";
+import type { AppConfig, LaunchResult, TabSpec, WindowSpec, WindowTarget, Workspace } from "../core/types";
 import * as api from "./api/client";
 import type {
   CreateWorkspaceBody,
@@ -17,7 +17,12 @@ import { GraphView } from "./components/GraphView";
 import { MemoryPanel, type RelatedSeed } from "./components/MemoryPanel";
 import { SessionDrawer } from "./components/SessionDrawer";
 import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
+import { InsightsView } from "./components/InsightsView";
+import { SettingsView } from "./components/SettingsView";
+import { SnapshotTimeline } from "./components/SnapshotTimeline";
+import { SelectionBar } from "./components/SelectionBar";
 import { resolveColor } from "./lib/colors";
+import { triggerDownload } from "./lib/download";
 import { useLocalStorage } from "./lib/useLocalStorage";
 import { useTheme, useDensity } from "./lib/preferences";
 import {
@@ -58,12 +63,20 @@ export function App() {
   const { density, toggleDensity } = useDensity();
 
   const [filter, setFilter] = useState<SessionFilter>("open");
-  const [primaryView, setPrimaryView] = useState<"sessions" | "graph" | "memory">("sessions");
+  const [primaryView, setPrimaryView] = useState<
+    "sessions" | "graph" | "memory" | "insights" | "settings"
+  >("sessions");
   const [relatedSeed, setRelatedSeed] = useState<RelatedSeed | null>(null);
   const [windowTarget, setWindowTarget] = useState<WindowTarget>("new");
   const [showHidden, setShowHidden] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [tagFilter, setTagFilter] = useState<string | null>(null);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // Bulk-selection state for the session views.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const lastSelectedRef = useRef<string | null>(null);
 
   const [data, setData] = useState<SessionData>(EMPTY_DATA);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -360,6 +373,38 @@ export function App() {
     [push],
   );
 
+  const handleExportWorkspaces = useCallback(async () => {
+    setGlobalBusy(true);
+    try {
+      const json = await api.exportWorkspaces();
+      const stamp = new Date().toISOString().slice(0, 10);
+      triggerDownload(`workspaces-${stamp}.json`, json, "application/json");
+      push("success", "Exported workspaces.");
+    } catch (err) {
+      push("error", `Export failed: ${errorMessage(err)}`);
+    } finally {
+      setGlobalBusy(false);
+    }
+  }, [push]);
+
+  const handleImportWorkspaces = useCallback(
+    async (json: string) => {
+      setGlobalBusy(true);
+      try {
+        const imported = await api.importWorkspaces(json, true);
+        await loadAll();
+        push("success", `Imported ${imported.length} workspace${imported.length === 1 ? "" : "s"}.`);
+      } catch (err) {
+        push("error", `Import failed: ${errorMessage(err)}`);
+      } finally {
+        setGlobalBusy(false);
+      }
+    },
+    [loadAll, push],
+  );
+
+  const [showImportDialog, setShowImportDialog] = useState(false);
+
   const toggleExpand = useCallback(
     (id: string) => {
       setExpandedCards((curr) =>
@@ -404,7 +449,15 @@ export function App() {
       { id: "view-all", label: "Open: All sessions", hint: "View", run: () => selectSessionsTab("all") },
       { id: "view-graph", label: "Open Graph", hint: "View", run: () => setPrimaryView("graph") },
       { id: "view-memory", label: "Open Memory", hint: "View", run: () => setPrimaryView("memory") },
+      { id: "view-insights", label: "Open Insights", hint: "View", run: () => setPrimaryView("insights") },
+      { id: "view-settings", label: "Open Settings", hint: "View", run: () => setPrimaryView("settings") },
       { id: "snapshot", label: "Snapshot now", hint: "Action", run: () => void handleSnapshot() },
+      {
+        id: "export-workspaces",
+        label: "Export workspaces",
+        hint: "Action",
+        run: () => void handleExportWorkspaces(),
+      },
       {
         id: "reindex",
         label: "Reindex memories",
@@ -435,24 +488,171 @@ export function App() {
         run: () => setShowSaveDialog(true),
       },
     ],
-    [selectSessionsTab, handleSnapshot, push, theme, toggleTheme, density, toggleDensity],
+    [selectSessionsTab, handleSnapshot, handleExportWorkspaces, push, theme, toggleTheme, density, toggleDensity],
   );
 
   const activeList = filter === "open" ? data.open : filter === "live" ? data.live : data.all;
 
   const hiddenCount = useMemo(() => activeList.filter((s) => s.hidden).length, [activeList]);
+  const archivedCount = useMemo(() => activeList.filter((s) => s.archived).length, [activeList]);
+
+  const availableTags = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of activeList) for (const t of s.tags ?? []) set.add(t);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [activeList]);
 
   const visibleSessions = useMemo(() => {
-    const afterHidden = showHidden ? activeList : activeList.filter((s) => !s.hidden);
-    const searched = searchSessions(afterHidden, search);
+    let list = showArchived ? activeList : activeList.filter((s) => !s.archived);
+    list = showHidden ? list : list.filter((s) => !s.hidden);
+    if (tagFilter) list = list.filter((s) => (s.tags ?? []).includes(tagFilter));
+    const searched = searchSessions(list, search);
     const filtered = applyQuickFilters(searched, quickFilters);
     return sortSessions(filtered, sort);
-  }, [activeList, showHidden, search, quickFilters, sort]);
+  }, [activeList, showArchived, showHidden, tagFilter, search, quickFilters, sort]);
 
   const groups = useMemo(
     () => (grouping === "by-repo" ? groupByRepo(visibleSessions) : []),
     [grouping, visibleSessions],
   );
+
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectionActive = selectedIds.length > 0;
+
+  const toggleSelect = useCallback(
+    (id: string, shiftKey: boolean) => {
+      setSelectedIds((curr) => {
+        const order = visibleSessions.map((s) => s.id);
+        if (shiftKey && lastSelectedRef.current) {
+          const from = order.indexOf(lastSelectedRef.current);
+          const to = order.indexOf(id);
+          if (from !== -1 && to !== -1) {
+            const [lo, hi] = from < to ? [from, to] : [to, from];
+            const range = order.slice(lo, hi + 1);
+            const merged = new Set(curr);
+            for (const rid of range) merged.add(rid);
+            lastSelectedRef.current = id;
+            return Array.from(merged);
+          }
+        }
+        lastSelectedRef.current = id;
+        return curr.includes(id) ? curr.filter((x) => x !== id) : [...curr, id];
+      });
+    },
+    [visibleSessions],
+  );
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds([]);
+    lastSelectedRef.current = null;
+  }, []);
+
+  const bulkPatch = useCallback(
+    async (patch: SessionPatch, label: string) => {
+      const ids = selectedIds.slice();
+      if (ids.length === 0) return;
+      setGlobalBusy(true);
+      const progressId = push("progress", `${label} ${ids.length} session${ids.length === 1 ? "" : "s"}…`, {
+        progress: true,
+      });
+      try {
+        await Promise.all(ids.map((id) => api.patchSession(id, patch)));
+        ids.forEach((id) => patchEverywhere(id, (s) => ({ ...s, ...patch, managed: true })));
+        dismiss(progressId);
+        push("success", `${label} ${ids.length} session${ids.length === 1 ? "" : "s"}.`);
+      } catch (err) {
+        dismiss(progressId);
+        push("error", `${label} failed: ${errorMessage(err)}`);
+        loadAll().catch(() => undefined);
+      } finally {
+        setGlobalBusy(false);
+      }
+    },
+    [selectedIds, push, dismiss, patchEverywhere, loadAll],
+  );
+
+  const bulkResume = useCallback(async () => {
+    const ids = selectedIds.slice();
+    if (ids.length === 0) return;
+    setGlobalBusy(true);
+    const progressId = push("progress", `Resuming ${ids.length} session${ids.length === 1 ? "" : "s"}…`, {
+      progress: true,
+    });
+    try {
+      const result = await api.resumeBatch(ids, windowTarget);
+      dismiss(progressId);
+      reportLaunch(result, `Resumed ${ids.length} selected`);
+    } catch (err) {
+      dismiss(progressId);
+      push("error", `Resume all failed: ${errorMessage(err)}`);
+    } finally {
+      setGlobalBusy(false);
+    }
+  }, [selectedIds, windowTarget, push, dismiss, reportLaunch]);
+
+  const bulkAddTag = useCallback(() => {
+    const tag = window.prompt("Add tag to the selected sessions:");
+    const trimmed = tag?.trim();
+    if (!trimmed) return;
+    const ids = selectedIds.slice();
+    setGlobalBusy(true);
+    const progressId = push("progress", `Tagging ${ids.length} session${ids.length === 1 ? "" : "s"}…`, {
+      progress: true,
+    });
+    Promise.all(
+      ids.map((id) => {
+        const current = activeList.find((s) => s.id === id);
+        const existing = current?.tags ?? [];
+        const next = existing.includes(trimmed) ? existing : [...existing, trimmed];
+        return api.patchSession(id, { tags: next });
+      }),
+    )
+      .then(() => {
+        ids.forEach((id) =>
+          patchEverywhere(id, (s) => ({
+            ...s,
+            tags: (s.tags ?? []).includes(trimmed) ? s.tags : [...(s.tags ?? []), trimmed],
+            managed: true,
+          })),
+        );
+        dismiss(progressId);
+        push("success", `Tagged ${ids.length} with “${trimmed}”.`);
+      })
+      .catch((err) => {
+        dismiss(progressId);
+        push("error", `Tagging failed: ${errorMessage(err)}`);
+        loadAll().catch(() => undefined);
+      })
+      .finally(() => setGlobalBusy(false));
+  }, [selectedIds, activeList, push, dismiss, patchEverywhere, loadAll]);
+
+  const bulkSaveWorkspace = useCallback(async () => {
+    const ids = selectedIds.slice();
+    if (ids.length === 0) return;
+    const name = window.prompt("Save the selected sessions as a workspace named:");
+    const trimmed = name?.trim();
+    if (!trimmed) return;
+    const chosen = ids
+      .map((id) => activeList.find((s) => s.id === id))
+      .filter((s): s is SessionView => Boolean(s));
+    const tabs: TabSpec[] = chosen.map((s) => ({
+      sessionId: s.id,
+      title: s.title ?? s.name ?? s.id,
+      color: s.color ?? resolveColor(s),
+      cwd: s.cwd,
+    }));
+    const windows: WindowSpec[] = [{ id: "w1", label: trimmed, tabs }];
+    setGlobalBusy(true);
+    try {
+      const ws = await api.createWorkspace({ name: trimmed, windows });
+      setWorkspaces((curr) => [ws, ...curr.filter((w) => w.id !== ws.id)]);
+      push("success", `Saved workspace “${ws.name}” with ${tabs.length} tab${tabs.length === 1 ? "" : "s"}.`);
+    } catch (err) {
+      push("error", `Save failed: ${errorMessage(err)}`);
+    } finally {
+      setGlobalBusy(false);
+    }
+  }, [selectedIds, activeList, push]);
 
   const renderCard = (s: SessionView) => (
     <SessionCard
@@ -468,6 +668,9 @@ export function App() {
       onRelated={(s) => showRelatedMemory(s.id, s.title || s.name || s.id)}
       onHide={handleHide}
       onOpen={(s) => openDrawer(s.id)}
+      selected={selectedSet.has(s.id)}
+      selectionActive={selectionActive}
+      onToggleSelect={toggleSelect}
     />
   );
 
@@ -598,6 +801,24 @@ export function App() {
         >
           Memory
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={primaryView === "insights"}
+          className={`tab${primaryView === "insights" ? " tab--on" : ""}`}
+          onClick={() => setPrimaryView("insights")}
+        >
+          Insights
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={primaryView === "settings"}
+          className={`tab${primaryView === "settings" ? " tab--on" : ""}`}
+          onClick={() => setPrimaryView("settings")}
+        >
+          Settings
+        </button>
       </nav>
 
       {error && primaryView === "sessions" && (
@@ -627,6 +848,14 @@ export function App() {
             relatedSeed={relatedSeed}
             onClearRelated={() => setRelatedSeed(null)}
           />
+        </main>
+      ) : primaryView === "insights" ? (
+        <main className="content content--single">
+          <InsightsView push={push} />
+        </main>
+      ) : primaryView === "settings" ? (
+        <main className="content content--single">
+          <SettingsView push={push} onSaved={setConfig} />
         </main>
       ) : (
         <main className="content">
@@ -658,6 +887,12 @@ export function App() {
             quickFilters={quickFilters}
             onToggleQuick={toggleQuick}
             searchRef={searchRef}
+            tags={availableTags}
+            tagFilter={tagFilter}
+            onTagFilter={setTagFilter}
+            showArchived={showArchived}
+            onShowArchived={setShowArchived}
+            archivedCount={archivedCount}
           />
 
           {loading ? (
@@ -718,6 +953,24 @@ export function App() {
             <h2>
               Workspaces <span className="count">{workspaces.length}</span>
             </h2>
+            <div className="panel__head-actions">
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={globalBusy || workspaces.length === 0}
+                onClick={() => void handleExportWorkspaces()}
+              >
+                Export…
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                disabled={globalBusy}
+                onClick={() => setShowImportDialog(true)}
+              >
+                Import…
+              </button>
+            </div>
           </div>
           <WorkspacePanel
             workspaces={workspaces}
@@ -726,7 +979,26 @@ export function App() {
             onDelete={handleDelete}
           />
         </section>
+
+        <SnapshotTimeline
+          windowTarget={windowTarget}
+          busy={globalBusy}
+          push={push}
+          onRestore={handleRestore}
+          onPromoted={() => loadAll().catch(() => undefined)}
+        />
       </main>
+      )}
+
+      {showImportDialog && (
+        <ImportWorkspacesDialog
+          busy={globalBusy}
+          onCancel={() => setShowImportDialog(false)}
+          onImport={async (json) => {
+            await handleImportWorkspaces(json);
+            setShowImportDialog(false);
+          }}
+        />
       )}
 
       {showSaveDialog && (
@@ -764,6 +1036,21 @@ export function App() {
           onOpenSession={openDrawer}
           onResumeSession={handleResume}
           onRestoreWorkspace={handleRestore}
+        />
+      )}
+
+      {primaryView === "sessions" && selectionActive && (
+        <SelectionBar
+          count={selectedIds.length}
+          busy={globalBusy}
+          onResumeAll={() => void bulkResume()}
+          onSetColor={(stored) => void bulkPatch({ color: stored }, "Colored")}
+          onPin={() => void bulkPatch({ pinned: true }, "Pinned")}
+          onHide={() => void bulkPatch({ hidden: true }, "Hid")}
+          onAddTag={bulkAddTag}
+          onArchive={() => void bulkPatch({ archived: true }, "Archived")}
+          onSaveWorkspace={() => void bulkSaveWorkspace()}
+          onClear={clearSelection}
         />
       )}
 
@@ -892,6 +1179,73 @@ function SaveWorkspaceDialog({ defaultFilter, busy, onCancel, onSave }: SaveDial
           </button>
           <button type="submit" className="btn btn--primary" disabled={busy || !name.trim()}>
             Save workspace
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+interface ImportDialogProps {
+  busy: boolean;
+  onCancel: () => void;
+  onImport: (json: string) => void | Promise<void>;
+}
+
+function ImportWorkspacesDialog({ busy, onCancel, onImport }: ImportDialogProps) {
+  const [json, setJson] = useState("");
+
+  function onFile(e: FormEvent<HTMLInputElement>) {
+    const file = e.currentTarget.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setJson(typeof reader.result === "string" ? reader.result : "");
+    reader.readAsText(file);
+  }
+
+  function submit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const trimmed = json.trim();
+    if (!trimmed) return;
+    void onImport(trimmed);
+  }
+
+  return (
+    <div className="modal-backdrop" role="presentation" onClick={onCancel}>
+      <form
+        className="modal"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Import workspaces"
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={submit}
+      >
+        <h3 className="modal__title">Import workspaces</h3>
+
+        <label className="field field--block">
+          <span className="field__label">Choose a JSON file</span>
+          <input className="input" type="file" accept="application/json,.json" onChange={onFile} />
+        </label>
+
+        <label className="field field--block">
+          <span className="field__label">…or paste exported JSON</span>
+          <textarea
+            className="input"
+            rows={6}
+            value={json}
+            placeholder='{"workspaces":[…]}'
+            onChange={(e) => setJson(e.target.value)}
+          />
+        </label>
+
+        <p className="modal__hint">Imported workspaces are assigned fresh ids and won’t overwrite existing ones.</p>
+
+        <div className="modal__actions">
+          <button type="button" className="btn btn--ghost" onClick={onCancel} disabled={busy}>
+            Cancel
+          </button>
+          <button type="submit" className="btn btn--primary" disabled={busy || !json.trim()}>
+            Import
           </button>
         </div>
       </form>

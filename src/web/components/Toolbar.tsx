@@ -13,6 +13,16 @@ interface ToolbarProps {
   quickFilters: QuickFilter[];
   onToggleQuick: (chip: QuickFilter) => void;
   searchRef: RefObject<HTMLInputElement>;
+  /** Distinct tags available across the current session list. */
+  tags: string[];
+  /** The active tag filter, or null for "all tags". */
+  tagFilter: string | null;
+  onTagFilter: (tag: string | null) => void;
+  /** Whether archived sessions are currently revealed. */
+  showArchived: boolean;
+  onShowArchived: (value: boolean) => void;
+  /** Number of archived sessions in the current list (for the toggle label). */
+  archivedCount: number;
 }
 
 const SORT_OPTIONS: { key: SortKey; label: string }[] = [
@@ -38,6 +48,12 @@ export function Toolbar({
   quickFilters,
   onToggleQuick,
   searchRef,
+  tags,
+  tagFilter,
+  onTagFilter,
+  showArchived,
+  onShowArchived,
+  archivedCount,
 }: ToolbarProps) {
   return (
     <div className="toolbar">
@@ -98,6 +114,34 @@ export function Toolbar({
           );
         })}
       </div>
+
+      {tags.length > 0 && (
+        <label className="field">
+          <span className="field__label">Tag</span>
+          <select
+            className="select"
+            value={tagFilter ?? ""}
+            onChange={(e) => onTagFilter(e.target.value || null)}
+          >
+            <option value="">All tags</option>
+            {tags.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      <button
+        type="button"
+        className={`chip${showArchived ? " chip--on" : ""}`}
+        aria-pressed={showArchived}
+        title="Toggle archived sessions"
+        onClick={() => onShowArchived(!showArchived)}
+      >
+        {showArchived ? "Hide archived" : `Show archived${archivedCount ? ` (${archivedCount})` : ""}`}
+      </button>
     </div>
   );
 }

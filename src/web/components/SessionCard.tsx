@@ -20,6 +20,12 @@ interface SessionCardProps {
   onHide?: (session: SessionView) => void;
   /** Open the full session detail drawer (triggered by clicking the card body). */
   onOpen?: (session: SessionView) => void;
+  /** Whether this card is currently selected for a bulk action. */
+  selected?: boolean;
+  /** Whether selection mode is active (keeps the checkbox visible). */
+  selectionActive?: boolean;
+  /** Toggle selection; `shiftKey` requests a range select from the last anchor. */
+  onToggleSelect?: (id: string, shiftKey: boolean) => void;
 }
 
 const LIVENESS_LABEL: Record<SessionView["liveness"], string> = {
@@ -40,6 +46,9 @@ export function SessionCard({
   onRelated,
   onHide,
   onOpen,
+  selected = false,
+  selectionActive = false,
+  onToggleSelect,
 }: SessionCardProps) {
   const color = resolveColor(session);
   const name = displayName(session);
@@ -77,11 +86,26 @@ export function SessionCard({
 
   return (
     <article
-      className={`card${session.hidden ? " card--hidden" : ""}${onOpen ? " card--clickable" : ""}`}
+      className={`card${session.hidden ? " card--hidden" : ""}${session.archived ? " card--archived" : ""}${onOpen ? " card--clickable" : ""}${selected ? " card--selected" : ""}${selectionActive ? " card--selectable" : ""}`}
       style={{ borderLeftColor: color }}
       onClick={onCardClick}
     >
       <header className="card__head">
+        {onToggleSelect && (
+          <input
+            type="checkbox"
+            className="card__select"
+            checked={selected}
+            aria-label={`Select “${name}”`}
+            disabled={busy}
+            onClick={(e) => {
+              // Capture shiftKey for range selection before the change fires.
+              onToggleSelect(session.id, e.shiftKey);
+              e.stopPropagation();
+            }}
+            onChange={() => undefined}
+          />
+        )}
         <span className="card__dot-wrap">
           <button
             type="button"
@@ -130,6 +154,7 @@ export function SessionCard({
         {session.role === "child" && (
           <span className="tag" title="Co-located child / subagent session">child</span>
         )}
+        {session.archived && <span className="tag tag--archived" title="Archived">archived</span>}
         {session.managed && <span className="tag" title="Has tool-managed metadata">managed</span>}
         <span className="card__time" title={absoluteTime(session.updatedAt)}>
           {relativeTime(session.updatedAt)}
@@ -156,6 +181,16 @@ export function SessionCard({
               ⎇ {session.branch}
             </span>
           )}
+        </div>
+      )}
+
+      {session.tags && session.tags.length > 0 && (
+        <div className="card__tags">
+          {session.tags.map((t) => (
+            <span className="tagchip" key={t} title={`Tag: ${t}`}>
+              {t}
+            </span>
+          ))}
         </div>
       )}
 
@@ -228,6 +263,15 @@ export function SessionCard({
           onClick={() => (onHide ? onHide(session) : onPatch(session.id, { hidden: !session.hidden }))}
         >
           {session.hidden ? "Unhide" : "Hide"}
+        </button>
+        <button
+          className="btn btn--ghost"
+          type="button"
+          disabled={busy}
+          title={session.archived ? "Unarchive session" : "Archive session"}
+          onClick={() => onPatch(session.id, { archived: !session.archived })}
+        >
+          {session.archived ? "Unarchive" : "Archive"}
         </button>
         {onOpen && (
           <button

@@ -1,5 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getGraph, getSessionDetail, listSessions, patchSession, resumeBatch, searchMemory } from "./client";
+import {
+  exportWorkspaces,
+  getConfig,
+  getGraph,
+  getSessionDetail,
+  getStale,
+  getStats,
+  importWorkspaces,
+  listSessions,
+  listSnapshots,
+  patchSession,
+  putConfig,
+  resumeBatch,
+  searchMemory,
+} from "./client";
 
 function makeResponse(body: unknown, ok = true, status = 200): Response {
   return {
@@ -8,6 +22,16 @@ function makeResponse(body: unknown, ok = true, status = 200): Response {
     statusText: ok ? "OK" : "Internal Server Error",
     json: () => Promise.resolve(body),
     text: () => Promise.resolve(JSON.stringify(body)),
+  } as unknown as Response;
+}
+
+function makeTextResponse(text: string, ok = true, status = 200): Response {
+  return {
+    ok,
+    status,
+    statusText: ok ? "OK" : "Internal Server Error",
+    json: () => Promise.reject(new Error("not json")),
+    text: () => Promise.resolve(text),
   } as unknown as Response;
 }
 
@@ -206,5 +230,111 @@ describe("api client", () => {
 
     const result = await getSessionDetail("solo");
     expect(result.children).toEqual([]);
+  });
+
+  it("getStats calls /api/stats and returns the roll-up", async () => {
+    const stats = {
+      totalSessions: 12,
+      totalCheckpoints: 4,
+      totalTurns: 88,
+      topRepos: [{ repository: "o/r", sessions: 6 }],
+      activityByDay: [{ date: "2024-01-01", sessions: 3 }],
+      generatedAt: "2024-01-02T00:00:00.000Z",
+    };
+    const mockFetch = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(makeResponse(stats)),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await getStats();
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/stats");
+    expect(result).toEqual(stats);
+  });
+
+  it("getConfig unwraps { config } from /api/config", async () => {
+    const config = { apiPort: 4123, webPort: 5173, colorStrategy: "by-repo" };
+    const mockFetch = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(makeResponse({ config })),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await getConfig();
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/config");
+    expect(result).toEqual(config);
+  });
+
+  it("putConfig PUTs a partial config and unwraps the result", async () => {
+    const config = { apiPort: 4123, webPort: 5173, autoOpenBrowser: false };
+    const mockFetch = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(makeResponse({ config })),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await putConfig({ autoOpenBrowser: false });
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/config");
+    const init = mockFetch.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("PUT");
+    expect(JSON.parse(init.body as string)).toEqual({ autoOpenBrowser: false });
+    expect(result).toEqual(config);
+  });
+
+  it("listSnapshots unwraps { snapshots } from /api/snapshots", async () => {
+    const snapshots = [{ id: "snap-1", name: "auto", source: "auto-snapshot", windows: [] }];
+    const mockFetch = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(makeResponse({ snapshots })),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await listSnapshots();
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/snapshots");
+    expect(result).toEqual(snapshots);
+  });
+
+  it("exportWorkspaces returns the raw JSON text and forwards ids", async () => {
+    const json = '{"workspaces":[]}';
+    const mockFetch = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(makeTextResponse(json)),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await exportWorkspaces(["a", "b"]);
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/workspaces/export?ids=a%2Cb");
+    expect(result).toBe(json);
+  });
+
+  it("importWorkspaces POSTs { json, freshIds } and unwraps { workspaces }", async () => {
+    const workspaces = [{ id: "w1", name: "imported", source: "imported", windows: [] }];
+    const mockFetch = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(makeResponse({ workspaces })),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await importWorkspaces('{"workspaces":[]}', true);
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/workspaces/import");
+    const init = mockFetch.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ json: '{"workspaces":[]}', freshIds: true });
+    expect(result).toEqual(workspaces);
+  });
+
+  it("getStale unwraps { sessions } from /api/sessions/stale", async () => {
+    const sessions = [
+      { id: "dead-1", cwd: "x", cwdExists: true, liveness: "stale", livePids: [], topLevel: true, managed: false },
+    ];
+    const mockFetch = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(makeResponse({ sessions })),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await getStale();
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/sessions/stale");
+    expect(result).toEqual(sessions);
   });
 });
