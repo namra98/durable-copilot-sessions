@@ -87,16 +87,29 @@ reboots, forced updates, and crashes**.
 
 ## Install
 
+**One-liner** (clone + install + build + link `dcs` onto your PATH), from a
+PowerShell prompt:
+
+```powershell
+git clone https://github.com/namra98/durable-copilot-sessions.git; cd durable-copilot-sessions; ./scripts/install.ps1 -WithTasks
+```
+
+`install.ps1 -WithTasks` also registers the auto-snapshot + logon-restore
+Scheduled Tasks. Omit `-WithTasks` to set those up later with `dcs install-tasks`.
+
+<details>
+<summary>Manual / step-by-step</summary>
+
 ```bash
 git clone https://github.com/namra98/durable-copilot-sessions.git
 cd durable-copilot-sessions
-npm install
-npm run build
+npm run setup     # npm install + npm run build + npm link  →  `dcs` on PATH
 ```
 
-`npm run build` compiles the Node code (`tsc`) and bundles the web dashboard (`vite build`) into
-`dist/`. The CLI is exposed as the `dcs` bin (`dist/cli/index.js`); link it globally with
-`npm link` if you want `dcs` on your `PATH`.
+`npm run setup` compiles the Node code (`tsc`), bundles the web dashboard
+(`vite build`) into `dist/`, and `npm link`s the `dcs` bin (`dist/cli/index.js`)
+onto your PATH. Verify your environment afterward with `dcs doctor`.
+</details>
 
 ---
 
@@ -161,8 +174,19 @@ All commands are subcommands of `dcs`.
 | `dcs ui` | Start the local API server and open the web dashboard in the browser. |
 | `dcs serve [--port <n>]` | Start the API server **without** opening a browser. |
 | `dcs new <title> [--cwd <dir>] [--color <c>] [--prompt <p>]` | Launch a brand‑new managed Copilot session in a Windows Terminal tab. |
-| `dcs install-tasks [--interval <minutes>]` | Register the periodic snapshot + logon restore Scheduled Tasks. |
+| `dcs install-tasks [--interval <minutes>] [--no-hidden]` | Register the periodic snapshot + logon restore Scheduled Tasks. Runs hidden (no console flash) by default; `--no-hidden` shows a window. |
 | `dcs uninstall-tasks` | Remove the Scheduled Tasks. |
+| `dcs tasks-status` | Report whether the snapshot + logon-restore tasks are installed. |
+| `dcs restore-last [--window new\|current]` | Restore the most recent auto-snapshot. |
+| `dcs resume-repo <repository> [--window ...]` | Resume every open session matching a repository as one grouped window. |
+| `dcs fork <sessionId>` | Fork a session (records lineage for the Graph view). |
+| `dcs recall <query...>` | Search local memory / chat history for sessions by free text. |
+| `dcs reindex-memory` | Rebuild the local memory/recall index. |
+| `dcs stats` / `dcs transcript <id>` / `dcs diff <workspace>` | Show usage stats, a session transcript, or a workspace-vs-live diff. |
+| `dcs export-workspaces [file]` / `dcs import-workspaces <file>` | Export/import saved workspaces as JSON. |
+| `dcs clean` | Prune stale registry entries. |
+| `dcs tray` | Launch the always-on system tray (Windows PowerShell, STA). |
+| `dcs doctor [--json]` | Run environment health checks (wt, PowerShell, copilot, Node, state dirs, tasks). |
 
 `--window` controls whether a relaunch targets a **new** Windows Terminal window (default) or the
 **current** one.
@@ -303,6 +327,9 @@ effective config is also available from `GET /api/config`.
 | `colorStrategy` | `"by-repo" \| "by-cwd" \| "rotate" \| "fixed"` | `"by-repo"` | How tab colors are auto‑assigned when you haven't chosen one. |
 | `autoOpenBrowser` | `boolean` | `true` | Open the browser automatically on `dcs ui`. |
 | `windowGrouping` | `"by-repo" \| "by-cwd" \| "single"` | `"by-repo"` | How discovered sessions are grouped into windows on restore. |
+| `copilotCommand` | `string` | `"copilot"` | Executable used to launch/resume a session (e.g. `"agency"` to wrap Copilot with MCP servers). |
+| `copilotArgs` | `string[]` | `[]` | Extra args inserted before `--resume` (e.g. `["copilot","--mcp","workiq",...,"--yolo"]`). |
+| `restoreOnLogin` | `"off" \| "prompt" \| "auto"` | `"prompt"` | Logon task behavior: do nothing, open the dashboard to review/restore, or silently auto-restore the last snapshot. |
 
 ### Example `config.json`
 

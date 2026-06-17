@@ -51,8 +51,8 @@ src/
 │   └── snapshot/       # capture/restore + color & window grouping
 ├── server/       # Express API, routes under /api
 ├── web/          # React + Vite dashboard
-├── cli/          # the `dcs` command set (commands/ subfolder)
-└── scheduling/   # Windows Scheduled Tasks install/remove
+├── cli/          # the `dcs` command set (single index.ts, Commander)
+└── scheduling/   # Windows Scheduled Tasks install/remove (+ hidden VBScript launcher)
 ```
 
 ## State directory
@@ -72,10 +72,13 @@ tests). It contains `config.json`, `registry/sessions/`, `registry/workspaces/`,
 | Test (once) | `npm test` |
 | Test (watch) | `npm run test:watch` |
 | Build (Node + web) | `npm run build` |
+| **All gates at once** | `npm run check` (typecheck + lint + test + build) |
+| One-shot setup (install + build + link `dcs`) | `npm run setup` |
+| Environment health check | `dcs doctor` |
 | Run CLI from source | `npm run cli -- <args>` (e.g. `npm run cli -- list`) |
 
-Before opening a PR, make sure `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build`
-all pass.
+Before opening a PR, run `npm run check` — it runs `typecheck`, `lint`, `test`, and `build` in
+sequence (the same gates CI enforces in `.github/workflows/ci.yml`).
 
 ## Commit conventions
 

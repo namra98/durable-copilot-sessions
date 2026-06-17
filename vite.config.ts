@@ -28,5 +28,14 @@ export default defineConfig({
   build: {
     outDir: "../../dist/web",
     emptyOutDir: true,
+    chunkSizeWarningLimit: 900,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ["react", "react-dom"],
+          graph: ["@xyflow/react", "@dagrejs/dagre"],
+        },
+      },
+    },
   },
 });
