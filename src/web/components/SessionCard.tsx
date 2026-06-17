@@ -307,7 +307,7 @@ export function SessionCard({
         </div>
       )}
 
-      <footer className="mt-1 flex items-center gap-2">
+      <footer className="mt-auto flex items-center gap-2 pt-1">
         <Button
           type="button"
           size="sm"

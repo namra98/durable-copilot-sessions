@@ -14,8 +14,8 @@ import type { GraphEdge, GraphModel, GraphNode } from "../../core/types";
 export type LayoutDirection = "TB" | "LR";
 
 /** Default rendered node footprint (px) used for dagre spacing + centering. */
-export const NODE_WIDTH = 220;
-export const NODE_HEIGHT = 96;
+export const NODE_WIDTH = 240;
+export const NODE_HEIGHT = 160;
 
 /** A React-Flow-shaped node carrying the original {@link GraphNode} as data. */
 export interface FlowNode {
@@ -56,10 +56,10 @@ export function layoutGraph(
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({
     rankdir: direction,
-    nodesep: direction === "TB" ? 48 : 36,
-    ranksep: direction === "TB" ? 72 : 96,
-    marginx: 24,
-    marginy: 24,
+    nodesep: direction === "TB" ? 56 : 44,
+    ranksep: direction === "TB" ? 88 : 120,
+    marginx: 28,
+    marginy: 28,
   });
 
   const known = new Set<string>();

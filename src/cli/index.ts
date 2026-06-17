@@ -10,7 +10,7 @@ import type { LaunchResult, Workspace } from "../core/types.js";
 import { startServer } from "../server/index.js";
 import { ensureStateDirs } from "../core/paths.js";
 import { log } from "../core/logger.js";
-import { installTasks, uninstallTasks, tasksStatus } from "../scheduling/index.js";
+import { installTasks, uninstallTasks, tasksStatus, writeHiddenLauncher } from "../scheduling/index.js";
 import { runDoctor } from "../core/doctor/index.js";
 
 function tabCount(ws: Workspace): number {
@@ -424,10 +424,18 @@ function buildProgram(): Command {
     .command("install-tasks")
     .description("Register Windows Scheduled Tasks: periodic snapshot + logon restore prompt")
     .option("--interval <minutes>", "snapshot interval in minutes", "5")
-    .action((opts: { interval: string }) => {
+    .option("--no-hidden", "show a console window each time the snapshot task runs")
+    .action((opts: { interval: string; hidden?: boolean }) => {
+      const hidden = opts.hidden !== false;
+      const snapshotInner = resolveCliCommand("snapshot");
+      const restoreInner = resolveCliCommand("restore-prompt");
       const res = installTasks({
-        snapshotCommand: resolveCliCommand("snapshot"),
-        restorePromptCommand: resolveCliCommand("restore-prompt"),
+        snapshotCommand: hidden
+          ? writeHiddenLauncher("snapshot", snapshotInner)
+          : snapshotInner,
+        restorePromptCommand: hidden
+          ? writeHiddenLauncher("logon-restore", restoreInner)
+          : restoreInner,
         intervalMinutes: Number(opts.interval),
       });
       for (const m of res.messages) console.log(m);
