@@ -66,11 +66,22 @@ reboots, forced updates, and crashes**.
 
 ## Screenshots
 
-> _Placeholder — add dashboard screenshots to `assets/` and reference them here._
+> The dashboard and Session Graph, shown with **synthetic demo data**.
 
-| Dashboard | Restore prompt |
-| --- | --- |
-| `![Dashboard](assets/dashboard.png)` | `![Restore prompt](assets/restore-prompt.png)` |
+### Dashboard — open terminals at a glance
+
+![Dashboard](assets/dashboard.png)
+
+Every live Copilot session as a card: name, liveness, working directory, repo/branch,
+co‑located child sessions, and one‑click **Resume**. Filter to Open / Live / All, search,
+sort, group by repo, and recolor or rename inline.
+
+### Session Graph — lineage, forks, and co‑located children
+
+![Session Graph](assets/graph.png)
+
+Nodes are sessions; edges show **fork lineage** and **same‑terminal** grouping. Fork, spawn a
+child, or jump to related memory straight from a node.
 
 ---
 
@@ -87,15 +98,22 @@ reboots, forced updates, and crashes**.
 
 ## Install
 
-**One-liner** (clone + install + build + link `dcs` onto your PATH), from a
-PowerShell prompt:
+**True one-liner.** From a PowerShell prompt — clones, installs, builds, links `dcs`
+onto your PATH, and registers the durability tasks, all from a single command:
 
 ```powershell
-git clone https://github.com/namra98/durable-copilot-sessions.git; cd durable-copilot-sessions; ./scripts/install.ps1 -WithTasks
+irm https://raw.githubusercontent.com/namra98/durable-copilot-sessions/main/scripts/bootstrap.ps1 | iex
 ```
 
-`install.ps1 -WithTasks` also registers the auto-snapshot + logon-restore
-Scheduled Tasks. Omit `-WithTasks` to set those up later with `dcs install-tasks`.
+> **Private repo?** Authenticate the fetch with the GitHub CLI instead:
+>
+> ```powershell
+> gh api repos/namra98/durable-copilot-sessions/contents/scripts/bootstrap.ps1 -H "Accept: application/vnd.github.raw" | iex
+> ```
+
+The bootstrap script clones into the current directory (skipped if you're already
+inside a checkout), runs install + build + `npm link`, then registers the
+auto‑snapshot + logon‑restore Scheduled Tasks. Pass `-NoTasks` to skip the tasks.
 
 <details>
 <summary>Manual / step-by-step</summary>
@@ -104,6 +122,7 @@ Scheduled Tasks. Omit `-WithTasks` to set those up later with `dcs install-tasks
 git clone https://github.com/namra98/durable-copilot-sessions.git
 cd durable-copilot-sessions
 npm run setup     # npm install + npm run build + npm link  →  `dcs` on PATH
+dcs install-tasks # register auto-snapshot + logon-restore (optional)
 ```
 
 `npm run setup` compiles the Node code (`tsc`), bundles the web dashboard
@@ -213,24 +232,26 @@ In production the dashboard is served by the Express API. In development, Vite s
 `dcs` is a single TypeScript codebase organized into a shared core with four delivery layers (CLI,
 server, web, scheduling) on top.
 
-```
-              ┌─────────────── Web UI (React + Vite) ───────────────┐
-              │   session list · one-click resume · save/restore    │
-              └──────────────────────┬──────────────────────────────┘
-                                     │ REST (/api, default :4517)
-              ┌──────────────────────▼──────────────────────────────┐
-   CLI (dcs) ─┤              Local API server (Express)              │
-              └──────────────────────┬──────────────────────────────┘
-                                     │
-     ┌───────────────┬───────────────┼────────────────┬─────────────┐
-  discovery       registry        launch            snapshot     scheduling
- (read Copilot   (owned JSON     (wt.exe +         (capture &     (Windows
-  session state)  state store)    copilot resume)   restore)      Scheduled Tasks)
-     │               │               │                 │              │
-     ▼               ▼               ▼                 ▼              ▼
- ~/.copilot/    ~/.durable-      wt.exe new-tab     Workspace     periodic snapshot
- session-state  copilot-         -d <cwd> ...       JSON +        + logon restore
- (read-only)    sessions/state   copilot --resume   grouping      prompt
+```mermaid
+flowchart TB
+    web["Web UI · React + Vite<br/>session list · one-click resume · save/restore"]
+    cli["CLI · dcs"]
+    api["Local API server · Express<br/>(/api, default :4517)"]
+
+    web -->|REST| api
+    cli --> api
+
+    api --> discovery["core/discovery<br/>read Copilot session state"]
+    api --> registry["core/registry<br/>owned JSON state store"]
+    api --> launch["core/launch<br/>wt.exe + copilot --resume"]
+    api --> snapshot["core/snapshot<br/>capture &amp; restore"]
+    api --> scheduling["scheduling<br/>Windows Scheduled Tasks"]
+
+    discovery --> d1["~/.copilot/session-state<br/>(read-only)"]
+    registry --> d2["~/.durable-copilot-sessions/state"]
+    launch --> d3["wt.exe new-tab -d &lt;cwd&gt;<br/>copilot --resume"]
+    snapshot --> d4["Workspace JSON + grouping"]
+    scheduling --> d5["periodic snapshot<br/>+ logon restore prompt"]
 ```
 
 | Layer | Responsibility |
@@ -245,8 +266,8 @@ server, web, scheduling) on top.
 | `scheduling` | Install/remove Windows Scheduled Tasks for periodic snapshots and the logon restore prompt. |
 
 See [`docs/design/overview.md`](docs/design/overview.md) for a deeper walkthrough and the on‑disk
-state layout, and the [Architecture Decision Records](docs/design/decisions/) for the reasoning
-behind the stack, the discovery/resume model, and the Windows Terminal fidelity trade‑offs.
+state layout, and [`docs/design/session-graph-canvas.md`](docs/design/session-graph-canvas.md) for the
+Session Graph design.
 
 ---
 

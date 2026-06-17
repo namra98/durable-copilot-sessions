@@ -93,6 +93,5 @@ Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 Architecture and rationale live under `docs/design/`:
 
 - [`docs/design/overview.md`](docs/design/overview.md) — architecture + data flow + state layout.
-- [`docs/design/decisions/`](docs/design/decisions/) — Architecture Decision Records (ADRs). Add a new
-  numbered ADR (`NNNN-title.md`) using the **Status / Context / Decision / Consequences** format when
-  you make a significant architectural choice.
+- [`docs/design/session-graph-canvas.md`](docs/design/session-graph-canvas.md) — the Session Graph
+  (nodes/edges, fork lineage, co-located children) design.

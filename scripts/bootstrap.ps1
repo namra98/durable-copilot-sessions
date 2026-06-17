@@ -18,16 +18,16 @@
 .PARAMETER Dir
   Parent directory to clone into. Defaults to the current directory.
 
-.PARAMETER WithTasks
-  Also register the auto-snapshot + logon-restore Scheduled Tasks.
+.PARAMETER NoTasks
+  Skip registering the auto-snapshot + logon-restore Scheduled Tasks.
 
 .EXAMPLE
-  .\scripts\bootstrap.ps1
-  .\scripts\bootstrap.ps1 -WithTasks
+  irm https://raw.githubusercontent.com/namra98/durable-copilot-sessions/main/scripts/bootstrap.ps1 | iex
+  .\scripts\bootstrap.ps1 -NoTasks
 #>
 param(
   [string]$Dir = (Get-Location).Path,
-  [switch]$WithTasks
+  [switch]$NoTasks
 )
 
 $ErrorActionPreference = "Stop"
@@ -57,7 +57,7 @@ npm run build | Out-Null
 Write-Host "==> Linking 'dcs' globally (npm link)..." -ForegroundColor Cyan
 npm link | Out-Null
 
-if ($WithTasks) {
+if (-not $NoTasks) {
   Write-Host "==> Registering Scheduled Tasks (auto-snapshot + logon restore)..." -ForegroundColor Cyan
   node (Join-Path $root "dist\cli\index.js") install-tasks
 }
