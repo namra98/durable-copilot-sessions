@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { MouseEvent as ReactMouseEvent } from "react";
 import type { SessionView, SessionPatch } from "../api/client";
 import { resolveColor } from "../lib/colors";
 import { displayName } from "../lib/sessions";
@@ -15,6 +16,10 @@ interface SessionCardProps {
   onResume: (session: SessionView) => void;
   onPatch: (id: string, patch: SessionPatch) => void;
   onRelated?: (session: SessionView) => void;
+  /** Dedicated hide toggle (enables Undo); falls back to onPatch when absent. */
+  onHide?: (session: SessionView) => void;
+  /** Open the full session detail drawer (triggered by clicking the card body). */
+  onOpen?: (session: SessionView) => void;
 }
 
 const LIVENESS_LABEL: Record<SessionView["liveness"], string> = {
@@ -33,6 +38,8 @@ export function SessionCard({
   onResume,
   onPatch,
   onRelated,
+  onHide,
+  onOpen,
 }: SessionCardProps) {
   const color = resolveColor(session);
   const name = displayName(session);
@@ -60,10 +67,19 @@ export function SessionCard({
     onPatch(session.id, { color: stored });
   }
 
+  function onCardClick(e: ReactMouseEvent<HTMLElement>) {
+    if (!onOpen) return;
+    // Ignore clicks that land on an interactive control (buttons, inputs,
+    // links, or an open popover) — only a click on the card body opens detail.
+    if ((e.target as HTMLElement).closest("button, input, a, .popover")) return;
+    onOpen(session);
+  }
+
   return (
     <article
-      className={`card${session.hidden ? " card--hidden" : ""}`}
+      className={`card${session.hidden ? " card--hidden" : ""}${onOpen ? " card--clickable" : ""}`}
       style={{ borderLeftColor: color }}
+      onClick={onCardClick}
     >
       <header className="card__head">
         <span className="card__dot-wrap">
@@ -209,10 +225,20 @@ export function SessionCard({
           className="btn btn--ghost"
           type="button"
           disabled={busy}
-          onClick={() => onPatch(session.id, { hidden: !session.hidden })}
+          onClick={() => (onHide ? onHide(session) : onPatch(session.id, { hidden: !session.hidden }))}
         >
           {session.hidden ? "Unhide" : "Hide"}
         </button>
+        {onOpen && (
+          <button
+            className="btn btn--ghost"
+            type="button"
+            title="Open session detail"
+            onClick={() => onOpen(session)}
+          >
+            ⤢ Details
+          </button>
+        )}
         {onRelated && (
           <button
             className="btn btn--ghost"

@@ -138,6 +138,20 @@ export async function listSessions(filter: SessionFilter): Promise<SessionListRe
   return { sessions: data.sessions, openCount: data.openCount ?? data.sessions.length };
 }
 
+/** Shape returned by `GET /api/sessions/:id`: the session plus its live children. */
+export interface SessionDetail {
+  session: SessionView;
+  children: SessionView[];
+}
+
+/** `GET /api/sessions/:id` -> the full session plus its co-located children. */
+export async function getSessionDetail(id: string): Promise<SessionDetail> {
+  const data = await request<{ session: SessionView; children?: SessionView[] }>(
+    `/sessions/${encodeURIComponent(id)}`,
+  );
+  return { session: data.session, children: data.children ?? [] };
+}
+
 /** `PATCH /api/sessions/:id` -> the updated session. */
 export async function patchSession(id: string, patch: SessionPatch): Promise<SessionView> {
   const data = await request<{ session: SessionView }>(

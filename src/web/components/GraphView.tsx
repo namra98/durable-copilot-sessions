@@ -69,6 +69,8 @@ interface GraphViewProps {
   windowTarget: WindowTarget;
   push: (kind: "success" | "error" | "info", text: string) => void;
   onShowRelated: (sessionId: string, label: string) => void;
+  /** Open the full session detail drawer when a node is clicked. */
+  onOpenSession?: (id: string) => void;
 }
 
 /** The Graph tab: a dagre-laid-out, pan/zoom React Flow canvas of sessions. */
@@ -80,7 +82,7 @@ export function GraphView(props: GraphViewProps) {
   );
 }
 
-function GraphCanvas({ initialFilter, windowTarget, push, onShowRelated }: GraphViewProps) {
+function GraphCanvas({ initialFilter, windowTarget, push, onShowRelated, onOpenSession }: GraphViewProps) {
   const [filter, setFilter] = useState<SessionFilter>(
     initialFilter === "all" ? "live" : initialFilter,
   );
@@ -296,6 +298,10 @@ function GraphCanvas({ initialFilter, windowTarget, push, onShowRelated }: Graph
               edges={edges}
               onNodesChange={onNodesChange}
               onEdgesChange={onEdgesChange}
+              onNodeClick={(e, node) => {
+                if ((e.target as HTMLElement).closest("button")) return;
+                onOpenSession?.(node.id);
+              }}
               nodeTypes={nodeTypes}
               colorMode="dark"
               fitView

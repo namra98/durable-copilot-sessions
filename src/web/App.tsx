@@ -15,8 +15,11 @@ import { WorkspacePanel } from "./components/WorkspacePanel";
 import { ToastStack, useToasts } from "./components/Toast";
 import { GraphView } from "./components/GraphView";
 import { MemoryPanel, type RelatedSeed } from "./components/MemoryPanel";
+import { SessionDrawer } from "./components/SessionDrawer";
+import { CommandPalette, type PaletteAction } from "./components/CommandPalette";
 import { resolveColor } from "./lib/colors";
 import { useLocalStorage } from "./lib/useLocalStorage";
+import { useTheme, useDensity } from "./lib/preferences";
 import {
   applyQuickFilters,
   childrenOf,
@@ -51,12 +54,16 @@ function describeLaunch(result: LaunchResult): string {
 
 export function App() {
   const { toasts, push, dismiss } = useToasts();
+  const { theme, toggleTheme } = useTheme();
+  const { density, toggleDensity } = useDensity();
 
   const [filter, setFilter] = useState<SessionFilter>("open");
   const [primaryView, setPrimaryView] = useState<"sessions" | "graph" | "memory">("sessions");
   const [relatedSeed, setRelatedSeed] = useState<RelatedSeed | null>(null);
   const [windowTarget, setWindowTarget] = useState<WindowTarget>("new");
   const [showHidden, setShowHidden] = useState(false);
+  const [drawerId, setDrawerId] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   const [data, setData] = useState<SessionData>(EMPTY_DATA);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -95,6 +102,18 @@ export function App() {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       e.preventDefault();
       searchRef.current?.focus();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Ctrl/Cmd+K toggles the command palette from anywhere.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -206,6 +225,21 @@ export function App() {
     [loadAll, patchEverywhere, push, setBusy],
   );
 
+  // Hide a session, surfacing an Undo affordance that re-shows it.
+  const handleHide = useCallback(
+    (session: SessionView) => {
+      const next = !session.hidden;
+      void handlePatch(session.id, { hidden: next });
+      if (next) {
+        const label = session.title || session.name || session.id;
+        push("info", `Hid “${label}”.`, {
+          action: { label: "Undo", onClick: () => void handlePatch(session.id, { hidden: false }) },
+        });
+      }
+    },
+    [handlePatch, push],
+  );
+
   const handleResume = useCallback(
     async (session: SessionView) => {
       setBusy(session.id, true);
@@ -245,26 +279,48 @@ export function App() {
   const handleRestore = useCallback(
     async (ws: Workspace) => {
       setGlobalBusy(true);
+      const tabCount = ws.windows.reduce((sum, w) => sum + w.tabs.length, 0);
+      const progressId =
+        tabCount > 1
+          ? push("progress", `Restoring “${ws.name}” · ${tabCount} tabs…`, { progress: true })
+          : null;
       try {
         const result = await api.restoreWorkspace(ws.id, { window: windowTarget });
+        if (progressId !== null) dismiss(progressId);
         reportLaunch(result, `Restored “${ws.name}”`);
       } catch (err) {
+        if (progressId !== null) dismiss(progressId);
         push("error", `Restore failed: ${errorMessage(err)}`);
       } finally {
         setGlobalBusy(false);
       }
     },
-    [windowTarget, push, reportLaunch],
+    [windowTarget, push, dismiss, reportLaunch],
   );
 
   const handleDelete = useCallback(
     async (ws: Workspace) => {
-      if (!window.confirm(`Delete workspace “${ws.name}”? This cannot be undone.`)) return;
+      if (!window.confirm(`Delete workspace “${ws.name}”?`)) return;
       setGlobalBusy(true);
       try {
         await api.deleteWorkspace(ws.id);
         setWorkspaces((curr) => curr.filter((w) => w.id !== ws.id));
-        push("success", `Deleted “${ws.name}”.`);
+        const restore = async () => {
+          try {
+            const recreated = await api.createWorkspace({
+              name: ws.name,
+              description: ws.description,
+              windows: ws.windows,
+            });
+            setWorkspaces((curr) => [recreated, ...curr.filter((w) => w.id !== recreated.id)]);
+            push("success", `Restored “${ws.name}”.`);
+          } catch (err) {
+            push("error", `Undo failed: ${errorMessage(err)}`);
+          }
+        };
+        push("info", `Deleted “${ws.name}”.`, {
+          action: { label: "Undo", onClick: () => void restore() },
+        });
       } catch (err) {
         push("error", `Delete failed: ${errorMessage(err)}`);
       } finally {
@@ -338,6 +394,50 @@ export function App() {
     setPrimaryView("memory");
   }, []);
 
+  const openDrawer = useCallback((id: string) => setDrawerId(id), []);
+
+  // Discrete commands surfaced in the command palette.
+  const paletteActions = useMemo<PaletteAction[]>(
+    () => [
+      { id: "view-open", label: "Open: Open terminals", hint: "View", run: () => selectSessionsTab("open") },
+      { id: "view-live", label: "Open: Live sessions", hint: "View", run: () => selectSessionsTab("live") },
+      { id: "view-all", label: "Open: All sessions", hint: "View", run: () => selectSessionsTab("all") },
+      { id: "view-graph", label: "Open Graph", hint: "View", run: () => setPrimaryView("graph") },
+      { id: "view-memory", label: "Open Memory", hint: "View", run: () => setPrimaryView("memory") },
+      { id: "snapshot", label: "Snapshot now", hint: "Action", run: () => void handleSnapshot() },
+      {
+        id: "reindex",
+        label: "Reindex memories",
+        hint: "Action",
+        run: () => {
+          api
+            .reindexMemory()
+            .then((count) => push("success", `Reindexed ${count} memor${count === 1 ? "y" : "ies"}.`))
+            .catch((err) => push("error", `Reindex failed: ${errorMessage(err)}`));
+        },
+      },
+      {
+        id: "toggle-theme",
+        label: `Toggle theme (now ${theme})`,
+        hint: "Action",
+        run: toggleTheme,
+      },
+      {
+        id: "toggle-density",
+        label: `Toggle density (now ${density})`,
+        hint: "Action",
+        run: toggleDensity,
+      },
+      {
+        id: "save-workspace",
+        label: "Save current as workspace",
+        hint: "Action",
+        run: () => setShowSaveDialog(true),
+      },
+    ],
+    [selectSessionsTab, handleSnapshot, push, theme, toggleTheme, density, toggleDensity],
+  );
+
   const activeList = filter === "open" ? data.open : filter === "live" ? data.live : data.all;
 
   const hiddenCount = useMemo(() => activeList.filter((s) => s.hidden).length, [activeList]);
@@ -366,6 +466,8 @@ export function App() {
       onResume={handleResume}
       onPatch={handlePatch}
       onRelated={(s) => showRelatedMemory(s.id, s.title || s.name || s.id)}
+      onHide={handleHide}
+      onOpen={(s) => openDrawer(s.id)}
     />
   );
 
@@ -398,6 +500,36 @@ export function App() {
               <option value="current">Current window</option>
             </select>
           </label>
+
+          <button
+            type="button"
+            className="btn btn--icon"
+            aria-label="Open command palette"
+            title="Command palette (Ctrl/Cmd+K)"
+            onClick={() => setPaletteOpen(true)}
+          >
+            ⌘K
+          </button>
+          <button
+            type="button"
+            className="btn btn--icon"
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+            aria-pressed={theme === "light"}
+            title={`Theme: ${theme} (click to switch)`}
+            onClick={toggleTheme}
+          >
+            {theme === "dark" ? "☾" : "☀"}
+          </button>
+          <button
+            type="button"
+            className="btn btn--icon"
+            aria-label={`Switch to ${density === "comfortable" ? "compact" : "comfortable"} density`}
+            aria-pressed={density === "compact"}
+            title={`Density: ${density} (click to switch)`}
+            onClick={toggleDensity}
+          >
+            {density === "comfortable" ? "▤" : "▦"}
+          </button>
 
           <button
             type="button"
@@ -484,6 +616,7 @@ export function App() {
             windowTarget={windowTarget}
             push={push}
             onShowRelated={showRelatedMemory}
+            onOpenSession={openDrawer}
           />
         </main>
       ) : primaryView === "memory" ? (
@@ -570,13 +703,13 @@ export function App() {
                         Resume all
                       </button>
                     </header>
-                    {!collapsed && <div className="grid">{g.sessions.map(renderCard)}</div>}
+                    {!collapsed && <div className={`grid grid--${density}`}>{g.sessions.map(renderCard)}</div>}
                   </section>
                 );
               })}
             </div>
           ) : (
-            <div className="grid">{visibleSessions.map(renderCard)}</div>
+            <div className={`grid grid--${density}`}>{visibleSessions.map(renderCard)}</div>
           )}
         </section>
 
@@ -602,6 +735,35 @@ export function App() {
           busy={globalBusy}
           onCancel={() => setShowSaveDialog(false)}
           onSave={handleCreateWorkspace}
+        />
+      )}
+
+      {drawerId && (
+        <SessionDrawer
+          id={drawerId}
+          windowTarget={windowTarget}
+          push={push}
+          onClose={() => setDrawerId(null)}
+          onOpen={openDrawer}
+          onResume={handleResume}
+          onPatch={handlePatch}
+          onShowRelated={(sessionId, label) => {
+            setDrawerId(null);
+            showRelatedMemory(sessionId, label);
+          }}
+          onReload={() => loadAll().catch(() => undefined)}
+        />
+      )}
+
+      {paletteOpen && (
+        <CommandPalette
+          sessions={data.all}
+          workspaces={workspaces}
+          actions={paletteActions}
+          onClose={() => setPaletteOpen(false)}
+          onOpenSession={openDrawer}
+          onResumeSession={handleResume}
+          onRestoreWorkspace={handleRestore}
         />
       )}
 

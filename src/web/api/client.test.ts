@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { getGraph, listSessions, patchSession, resumeBatch, searchMemory } from "./client";
+import { getGraph, getSessionDetail, listSessions, patchSession, resumeBatch, searchMemory } from "./client";
 
 function makeResponse(body: unknown, ok = true, status = 200): Response {
   return {
@@ -146,5 +146,65 @@ describe("api client", () => {
     expect(url).toContain("repository=o%2Fr");
     expect(url).toContain("limit=10");
     expect(result).toEqual(hits);
+  });
+
+  it("getSessionDetail calls /api/sessions/:id and returns { session, children }", async () => {
+    const session = {
+      id: "abc-123",
+      cwd: "C:\\work\\repo",
+      cwdExists: true,
+      liveness: "live",
+      livePids: [42],
+      topLevel: true,
+      managed: false,
+      role: "primary",
+      groupPid: 42,
+      childCount: 1,
+    };
+    const children = [
+      {
+        id: "child-1",
+        cwd: "C:\\work\\repo",
+        cwdExists: true,
+        liveness: "live",
+        livePids: [99],
+        topLevel: false,
+        managed: false,
+        role: "child",
+        groupPid: 42,
+      },
+    ];
+    const mockFetch = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(makeResponse({ session, children })),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await getSessionDetail("abc-123");
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/sessions/abc-123");
+    expect(result.session).toEqual(session);
+    expect(result.children).toEqual(children);
+  });
+
+  it("getSessionDetail defaults children to [] when the field is absent", async () => {
+    const session = {
+      id: "solo",
+      cwd: "x",
+      cwdExists: false,
+      liveness: "inactive",
+      livePids: [],
+      topLevel: true,
+      managed: false,
+    };
+    const mockFetch = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(makeResponse({ session })),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await getSessionDetail("solo");
+    expect(result.children).toEqual([]);
   });
 });
