@@ -36,7 +36,7 @@ function recordingExec(result: TaskExecResult): {
 }
 
 describe("buildCreateSnapshotArgs", () => {
-  it("produces a /Create MINUTE schedule with interval, name, command and force", () => {
+  it("produces a /Create DAILY schedule repeating every interval, indefinitely", () => {
     const args = buildCreateSnapshotArgs({
       command: "X snapshot",
       intervalMinutes: 5,
@@ -44,9 +44,15 @@ describe("buildCreateSnapshotArgs", () => {
 
     expect(args).toContain("/Create");
     expect(args).toContain("/SC");
-    expect(args).toContain("MINUTE");
-    expect(args).toContain("/MO");
-    expect(args).toContain("5");
+    expect(args).toContain("DAILY");
+    // Repeat every 5 minutes for a full day (avoids the /SC MINUTE 10-min cap).
+    const riIndex = args.indexOf("/RI");
+    expect(riIndex).toBeGreaterThan(-1);
+    expect(args[riIndex + 1]).toBe("5");
+    expect(args).toContain("/DU");
+    expect(args[args.indexOf("/DU") + 1]).toBe("24:00");
+    // Must NOT use the capped MINUTE schedule.
+    expect(args).not.toContain("MINUTE");
     expect(args).toContain("/TN");
     expect(args).toContain("DurableCopilotSessions-Snapshot");
     expect(args).toContain("/TR");

@@ -49,7 +49,14 @@ export const defaultExec: TaskExec = {
 
 /**
  * Build the `schtasks` arguments for the periodic auto-snapshot task that runs
- * `<command>` every `intervalMinutes` minutes. Pure: returns args only.
+ * `<command>` every `intervalMinutes` minutes, indefinitely. Pure: returns args
+ * only.
+ *
+ * We deliberately avoid `/SC MINUTE /MO <n>`: schtasks caps that schedule's
+ * repetition at a 10-minute duration, so it would silently stop snapshotting
+ * after ~10 minutes. Instead we use a DAILY trigger starting at 00:00 that
+ * repeats every `intervalMinutes` (`/RI`) for a full 24-hour window (`/DU
+ * 24:00`) — i.e. every N minutes, around the clock, every day, forever.
  *
  * `command` is passed to `/TR` verbatim: callers already quote the inner
  * executable/script paths, and `spawnSync` passes it as one argv element, so
@@ -66,9 +73,13 @@ export function buildCreateSnapshotArgs(opts: {
     "/TN",
     taskName,
     "/SC",
-    "MINUTE",
-    "/MO",
+    "DAILY",
+    "/ST",
+    "00:00",
+    "/RI",
     String(opts.intervalMinutes),
+    "/DU",
+    "24:00",
     "/TR",
     opts.command,
     "/RL",
