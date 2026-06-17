@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { COLOR_SWATCHES, parseColorInput, toCssColor } from "../lib/colors";
+import { cn } from "@/lib/utils";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 
 interface ColorPopoverProps {
   /** The currently applied color (hex or WT name), for highlighting + preview. */
@@ -39,15 +42,23 @@ export function ColorPopover({ current, busy, onApply, onClose }: ColorPopoverPr
   const activeCss = toCssColor(current);
 
   return (
-    <div className="popover" ref={ref} role="dialog" aria-label="Choose tab color">
-      <div className="popover__swatches">
+    <div
+      className="absolute left-0 top-7 z-30 w-64 rounded-lg border border-border bg-popover p-3 text-popover-foreground shadow-lg animate-in fade-in zoom-in-95 duration-100"
+      ref={ref}
+      role="dialog"
+      aria-label="Choose tab color"
+    >
+      <div className="grid grid-cols-6 gap-1.5">
         {COLOR_SWATCHES.map((sw) => {
           const active = activeCss.toLowerCase() === sw.toLowerCase();
           return (
             <button
               key={sw}
               type="button"
-              className={`swatch${active ? " swatch--active" : ""}`}
+              className={cn(
+                "size-7 rounded-md ring-offset-2 ring-offset-popover transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                active && "ring-2 ring-ring",
+              )}
               style={{ backgroundColor: sw }}
               title={`Set color ${sw}`}
               aria-label={`Set tab color ${sw}`}
@@ -59,14 +70,17 @@ export function ColorPopover({ current, busy, onApply, onClose }: ColorPopoverPr
         })}
       </div>
 
-      <div className="popover__custom">
+      <div className="mt-3 flex items-center gap-2">
         <span
-          className="popover__preview"
+          className="size-7 shrink-0 rounded-md border border-border"
           style={{ backgroundColor: parsed.valid ? parsed.css : "transparent" }}
           aria-hidden="true"
         />
-        <input
-          className={`input popover__input${draft && !parsed.valid ? " popover__input--bad" : ""}`}
+        <Input
+          className={cn(
+            "h-8 flex-1",
+            draft && !parsed.valid && "border-destructive focus-visible:ring-destructive/40",
+          )}
           value={draft}
           placeholder="#3b82f6 or blue"
           aria-label="Custom hex or color name"
@@ -77,17 +91,19 @@ export function ColorPopover({ current, busy, onApply, onClose }: ColorPopoverPr
             if (e.key === "Enter" && parsed.valid) onApply(parsed.stored);
           }}
         />
-        <button
+        <Button
           type="button"
-          className="btn btn--primary popover__apply"
+          size="sm"
           disabled={busy || !parsed.valid}
           onClick={() => parsed.valid && onApply(parsed.stored)}
         >
           Apply
-        </button>
+        </Button>
       </div>
       {draft && !parsed.valid && (
-        <p className="popover__hint">Enter #RRGGBB, bare hex, or a color name.</p>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Enter #RRGGBB, bare hex, or a color name.
+        </p>
       )}
     </div>
   );

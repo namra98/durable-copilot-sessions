@@ -1,9 +1,34 @@
 import { useEffect, useMemo, useState } from "react";
+import {
+  Activity,
+  AlertCircle,
+  BarChart3,
+  Database,
+  Download,
+  FolderGit2,
+  type LucideIcon,
+  RefreshCw,
+  TrendingUp,
+} from "lucide-react";
 import * as api from "../api/client";
 import type { StatsReport } from "../api/client";
 import { scaleBars, toCsv } from "../lib/insights";
 import { triggerDownload } from "../lib/download";
 import { absoluteTime, relativeTime } from "../lib/format";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { PushOptions, ToastKind } from "./Toast";
 
 type PushFn = (kind: ToastKind, text: string, options?: PushOptions) => number;
@@ -75,39 +100,45 @@ export function InsightsView({ push }: InsightsViewProps) {
 
   if (loading) {
     return (
-      <section className="panel">
-        <div className="panel__head">
-          <h2>Insights</h2>
-        </div>
-        <p className="empty__sub">Loading stats…</p>
+      <section className="space-y-6">
+        <h2 className="text-lg font-semibold">Insights</h2>
+        <p className="text-sm text-muted-foreground">Loading stats…</p>
       </section>
     );
   }
 
   if (unavailable) {
     return (
-      <section className="panel">
-        <div className="panel__head">
-          <h2>Insights</h2>
-        </div>
-        <div className="empty empty--cta">
-          <p className="empty__title">Insights are unavailable</p>
-          <p className="empty__sub">The stats endpoint returned no data on this server.</p>
-        </div>
+      <section className="space-y-6">
+        <h2 className="text-lg font-semibold">Insights</h2>
+        <Card>
+          <CardContent className="flex flex-col items-center gap-2 py-12 text-center">
+            <Database className="size-6 text-muted-foreground" />
+            <p className="font-semibold">Insights are unavailable</p>
+            <p className="text-sm text-muted-foreground">
+              The stats endpoint returned no data on this server.
+            </p>
+          </CardContent>
+        </Card>
       </section>
     );
   }
 
   if (error || !stats) {
     return (
-      <section className="panel">
-        <div className="panel__head">
-          <h2>Insights</h2>
-          <button type="button" className="btn btn--ghost" onClick={load}>
+      <section className="space-y-6">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-lg font-semibold">Insights</h2>
+          <Button type="button" variant="ghost" size="sm" onClick={load}>
+            <RefreshCw className="size-4" />
             Retry
-          </button>
+          </Button>
         </div>
-        <div className="banner banner--error" role="alert">
+        <div
+          role="alert"
+          className="flex items-center gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+        >
+          <AlertCircle className="size-4 shrink-0" />
           <span>{error ?? "No stats available."}</span>
         </div>
       </section>
@@ -115,68 +146,117 @@ export function InsightsView({ push }: InsightsViewProps) {
   }
 
   return (
-    <section className="panel insights">
-      <div className="panel__head">
-        <h2>Insights</h2>
-        <span className="insights__generated" title={absoluteTime(stats.generatedAt)}>
-          generated {relativeTime(stats.generatedAt)}
-        </span>
-        <button type="button" className="btn btn--ghost" onClick={exportCsv}>
-          Export activity CSV
-        </button>
-        <button type="button" className="btn btn--ghost" onClick={load}>
-          Refresh
-        </button>
+    <section className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <h2 className="text-lg font-semibold">Insights</h2>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="text-xs text-muted-foreground">
+                generated {relativeTime(stats.generatedAt)}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{absoluteTime(stats.generatedAt)}</TooltipContent>
+          </Tooltip>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={exportCsv}>
+            <Download className="size-4" />
+            Export activity CSV
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={load}>
+            <RefreshCw className="size-4" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
-      <div className="insights__totals">
-        <StatCard label="Sessions" value={stats.totalSessions} />
-        <StatCard label="Checkpoints" value={stats.totalCheckpoints} />
-        <StatCard label="Turns" value={stats.totalTurns} />
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <StatCard label="Sessions" value={stats.totalSessions} icon={Activity} />
+        <StatCard label="Checkpoints" value={stats.totalCheckpoints} icon={Database} />
+        <StatCard label="Turns" value={stats.totalTurns} icon={TrendingUp} />
       </div>
 
-      <div className="insights__grid">
-        <div className="insights__card">
-          <h3 className="insights__card-title">Top repositories</h3>
-          {stats.topRepos.length === 0 ? (
-            <p className="empty__sub">No repository activity recorded.</p>
-          ) : (
-            <ul className="repobars">
-              {stats.topRepos.map((r) => {
-                const pct = maxRepoSessions > 0 ? (r.sessions / maxRepoSessions) * 100 : 0;
-                return (
-                  <li className="repobar" key={r.repository}>
-                    <span className="repobar__name" title={r.repository}>
-                      {r.repository}
-                    </span>
-                    <span className="repobar__track">
-                      <span className="repobar__fill" style={{ width: `${pct}%` }} />
-                    </span>
-                    <span className="repobar__count">{formatNumber(r.sessions)}</span>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FolderGit2 className="size-4 text-muted-foreground" />
+              Top repositories
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {stats.topRepos.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No repository activity recorded.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {stats.topRepos.map((r) => {
+                  const pct =
+                    maxRepoSessions > 0 ? (r.sessions / maxRepoSessions) * 100 : 0;
+                  return (
+                    <li
+                      key={r.repository}
+                      className="grid grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1.5"
+                    >
+                      <span
+                        className="truncate font-mono text-xs text-foreground"
+                        title={r.repository}
+                      >
+                        {r.repository}
+                      </span>
+                      <Badge variant="secondary" className="tabular-nums">
+                        {formatNumber(r.sessions)}
+                      </Badge>
+                      <span className="col-span-2 h-1.5 overflow-hidden rounded-full bg-muted">
+                        <span
+                          className="block h-full rounded-full bg-primary"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
 
-        <div className="insights__card">
-          <h3 className="insights__card-title">Activity · last {activity.length} days</h3>
-          {activity.length === 0 ? (
-            <p className="empty__sub">No recent activity.</p>
-          ) : (
-            <div className="actchart" style={{ height: CHART_HEIGHT }} role="img" aria-label="Daily session activity">
-              {activity.map((a, i) => (
-                <span
-                  key={a.date}
-                  className="actchart__bar"
-                  style={{ height: bars[i] }}
-                  title={`${a.date}: ${a.sessions} session${a.sessions === 1 ? "" : "s"}`}
-                />
-              ))}
-            </div>
-          )}
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BarChart3 className="size-4 text-muted-foreground" />
+              Activity · last {activity.length} days
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {activity.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No recent activity.</p>
+            ) : (
+              <div
+                className="flex items-end gap-1"
+                style={{ height: CHART_HEIGHT }}
+                role="img"
+                aria-label="Daily session activity"
+              >
+                {activity.map((a, i) => (
+                  <Tooltip key={a.date}>
+                    <TooltipTrigger asChild>
+                      <span
+                        className="min-h-px flex-1 rounded-sm bg-primary/80 transition-colors hover:bg-primary"
+                        style={{ height: bars[i] }}
+                      />
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {a.date}: {a.sessions} session{a.sessions === 1 ? "" : "s"}
+                    </TooltipContent>
+                  </Tooltip>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </section>
   );
@@ -185,13 +265,28 @@ export function InsightsView({ push }: InsightsViewProps) {
 interface StatCardProps {
   label: string;
   value: number;
+  icon: LucideIcon;
 }
 
-function StatCard({ label, value }: StatCardProps) {
+function StatCard({ label, value, icon: Icon }: StatCardProps) {
   return (
-    <div className="statcard">
-      <span className="statcard__value">{formatNumber(value)}</span>
-      <span className="statcard__label">{label}</span>
-    </div>
+    <Card>
+      <CardContent className="flex items-center justify-between gap-4">
+        <div className="flex flex-col gap-1">
+          <span className="text-2xl font-semibold tabular-nums tracking-tight">
+            {formatNumber(value)}
+          </span>
+          <span className="text-xs text-muted-foreground">{label}</span>
+        </div>
+        <span
+          className={cn(
+            "flex size-10 items-center justify-center rounded-md",
+            "bg-muted text-muted-foreground",
+          )}
+        >
+          <Icon className="size-5" />
+        </span>
+      </CardContent>
+    </Card>
   );
 }

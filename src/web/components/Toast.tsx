@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Check, Info, Loader2, X, XCircle } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 export type ToastKind = "success" | "error" | "info" | "progress";
 
@@ -116,48 +118,67 @@ interface ToastStackProps {
   onDismiss: (id: number) => void;
 }
 
-const ICONS: Record<ToastKind, string> = {
-  success: "✓",
-  error: "✕",
-  info: "i",
-  progress: "↻",
+const ICON: Record<ToastKind, typeof Check> = {
+  success: Check,
+  error: XCircle,
+  info: Info,
+  progress: Loader2,
+};
+
+const ACCENT: Record<ToastKind, string> = {
+  success: "text-live",
+  error: "text-destructive",
+  info: "text-primary",
+  progress: "text-muted-foreground",
 };
 
 export function ToastStack({ toasts, onDismiss }: ToastStackProps) {
   if (toasts.length === 0) return null;
   return (
-    <div className="toast-stack" role="status" aria-live="polite">
-      {toasts.map((t) => (
-        <div key={t.id} className={`toast toast--${t.kind}`}>
-          <span
-            className={`toast__icon${t.progress ? " toast__icon--spin" : ""}`}
-            aria-hidden="true"
+    <div
+      className="pointer-events-none fixed bottom-4 right-4 z-[60] flex w-[min(24rem,calc(100vw-2rem))] flex-col gap-2"
+      role="status"
+      aria-live="polite"
+    >
+      {toasts.map((t) => {
+        const Icon = ICON[t.kind];
+        return (
+          <div
+            key={t.id}
+            className="pointer-events-auto flex items-start gap-3 rounded-lg border border-border bg-popover/95 p-3 text-popover-foreground shadow-lg backdrop-blur animate-in slide-in-from-bottom-2 fade-in duration-200"
           >
-            {ICONS[t.kind]}
-          </span>
-          <span className="toast__text">{t.text}</span>
-          {t.action && (
+            <Icon
+              className={cn(
+                "mt-0.5 size-4 shrink-0",
+                ACCENT[t.kind],
+                t.progress && "animate-spin",
+              )}
+              aria-hidden="true"
+            />
+            <span className="min-w-0 flex-1 text-sm leading-snug">{t.text}</span>
+            {t.action && (
+              <button
+                className="shrink-0 rounded-md px-2 py-0.5 text-xs font-medium text-primary transition-colors hover:bg-accent"
+                type="button"
+                onClick={() => {
+                  t.action?.onClick();
+                  onDismiss(t.id);
+                }}
+              >
+                {t.action.label}
+              </button>
+            )}
             <button
-              className="toast__action"
+              className="shrink-0 rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               type="button"
-              onClick={() => {
-                t.action?.onClick();
-                onDismiss(t.id);
-              }}
+              onClick={() => onDismiss(t.id)}
+              aria-label="Dismiss notification"
             >
-              {t.action.label}
+              <X className="size-3.5" />
             </button>
-          )}
-          <button
-            className="toast__close"
-            type="button"
-            onClick={() => onDismiss(t.id)}
-            aria-label="Dismiss notification"
-          >
-            ×
-          </button>
-        </div>
-      ))}
+          </div>
+        );
+      })}
     </div>
   );
 }

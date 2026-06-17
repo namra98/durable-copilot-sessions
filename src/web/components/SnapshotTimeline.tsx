@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
+import { ChevronRight, Clock, RotateCcw } from "lucide-react";
 import type { WindowTarget, Workspace } from "../../core/types";
 import * as api from "../api/client";
 import type { WorkspaceDiff } from "../api/client";
 import { absoluteTime, relativeTime } from "../lib/format";
 import type { PushOptions, ToastKind } from "./Toast";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 
 type PushFn = (kind: ToastKind, text: string, options?: PushOptions) => number;
 
@@ -90,76 +95,89 @@ export function SnapshotTimeline({ windowTarget: _windowTarget, busy, push, onRe
   if (unavailable) return null;
 
   return (
-    <section className="panel">
-      <div className="panel__head">
-        <h2>
-          Auto-snapshots <span className="count">{snapshots.length}</span>
+    <section className="flex flex-col gap-3 rounded-xl border border-border bg-card p-4 text-card-foreground">
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="flex items-center gap-2 text-sm font-semibold">
+          Auto-snapshots
+          <Badge variant="secondary">{snapshots.length}</Badge>
         </h2>
-        <button type="button" className="btn btn--ghost" onClick={load} disabled={loading}>
+        <Button type="button" size="sm" variant="ghost" onClick={load} disabled={loading}>
           Refresh
-        </button>
+        </Button>
       </div>
 
       {loading ? (
-        <p className="empty__sub">Loading snapshots…</p>
+        <p className="text-xs text-muted-foreground">Loading snapshots…</p>
       ) : snapshots.length === 0 ? (
-        <p className="empty">No auto-snapshots captured yet.</p>
+        <p className="rounded-xl border border-dashed border-border p-4 text-sm text-muted-foreground">
+          No auto-snapshots captured yet.
+        </p>
       ) : (
-        <ol className="timeline">
+        <ol className="flex flex-col">
           {snapshots.map((snap) => {
             const selected = selectedId === snap.id;
             return (
-              <li className={`timeline__item${selected ? " timeline__item--on" : ""}`} key={snap.id}>
+              <li className="border-b border-border last:border-0" key={snap.id}>
                 <button
                   type="button"
-                  className="timeline__node"
+                  className="flex w-full items-center gap-3 rounded-md px-2 py-2.5 text-left transition-colors hover:bg-accent hover:text-accent-foreground"
                   aria-expanded={selected}
                   onClick={() => select(snap.id)}
                 >
-                  <span className="timeline__dot" aria-hidden="true" />
-                  <span className="timeline__body">
-                    <span className="timeline__name">{snap.name}</span>
-                    <span className="timeline__meta">
+                  <ChevronRight
+                    className={cn(
+                      "size-4 shrink-0 text-muted-foreground transition-transform",
+                      selected && "rotate-90",
+                    )}
+                    aria-hidden="true"
+                  />
+                  <Clock className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <span className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm font-medium">{snap.name}</span>
+                    <span className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                       <span title={absoluteTime(snap.createdAt)}>{relativeTime(snap.createdAt)}</span>
-                      <span className="ws__dot">·</span>
+                      <span aria-hidden="true">·</span>
                       <span>{snap.windows.length} win</span>
-                      <span className="ws__dot">·</span>
+                      <span aria-hidden="true">·</span>
                       <span>{countTabs(snap)} tab{countTabs(snap) === 1 ? "" : "s"}</span>
                     </span>
                   </span>
                 </button>
 
                 {selected && (
-                  <div className="timeline__detail">
-                    <div className="timeline__actions">
-                      <button
+                  <div className="flex flex-col gap-3 px-2 pb-3 pl-9">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
                         type="button"
-                        className="btn btn--primary btn--xs"
+                        size="xs"
                         disabled={busy || actionBusy}
                         onClick={() => onRestore(snap)}
                       >
+                        <RotateCcw />
                         Restore
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
-                        className="btn btn--xs"
+                        size="xs"
+                        variant="secondary"
                         disabled={busy || actionBusy}
                         onClick={() => void promote(snap)}
                       >
                         Promote…
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
-                        className="btn btn--ghost btn--xs"
+                        size="xs"
+                        variant="ghost"
                         disabled={diffLoading}
                         onClick={() => void showDiff(snap.id)}
                       >
                         What changed
-                      </button>
+                      </Button>
                     </div>
 
                     {diffLoading ? (
-                      <p className="drawer__hint">Computing diff…</p>
+                      <p className="text-xs text-muted-foreground">Computing diff…</p>
                     ) : diff ? (
                       <DiffSummary diff={diff} />
                     ) : null}
@@ -182,31 +200,36 @@ function DiffSummary({ diff }: { diff: WorkspaceDiff }) {
     { key: "addedLive", label: "Added live" },
   ];
   return (
-    <div className="diff">
-      <div className="diff__counts">
+    <div className="flex flex-col gap-3 rounded-md border border-border bg-muted/40 p-3">
+      <div className="flex flex-wrap items-center gap-1.5">
         {buckets.map((b) => {
           const entries = diff[b.key] as { sessionId: string; title: string; detail: string }[];
           return (
-            <span className="diff__count" key={b.key}>
-              {b.label} <strong>{entries.length}</strong>
-            </span>
+            <Badge variant="outline" key={b.key}>
+              {b.label} <strong className="font-semibold">{entries.length}</strong>
+            </Badge>
           );
         })}
-        <span className="diff__count">
-          Unchanged <strong>{diff.unchanged}</strong>
-        </span>
+        <Badge variant="outline">
+          Unchanged <strong className="font-semibold">{diff.unchanged}</strong>
+        </Badge>
       </div>
       {buckets.map((b) => {
         const entries = diff[b.key] as { sessionId: string; title: string; detail: string }[];
         if (entries.length === 0) return null;
         return (
-          <div className="diff__group" key={b.key}>
-            <h5 className="diff__group-title">{b.label}</h5>
-            <ul className="diff__list">
+          <div className="flex flex-col gap-1" key={b.key}>
+            <Separator />
+            <h5 className="text-xs font-semibold text-muted-foreground">{b.label}</h5>
+            <ul className="flex flex-col gap-1">
               {entries.map((e) => (
-                <li className="diff__entry" key={`${b.key}:${e.sessionId}`} title={e.detail}>
-                  <span className="diff__entry-title">{e.title}</span>
-                  <span className="diff__entry-detail">{e.detail}</span>
+                <li
+                  className="flex items-baseline justify-between gap-2 text-xs"
+                  key={`${b.key}:${e.sessionId}`}
+                  title={e.detail}
+                >
+                  <span className="truncate font-medium">{e.title}</span>
+                  <span className="shrink-0 font-mono text-muted-foreground">{e.detail}</span>
                 </li>
               ))}
             </ul>

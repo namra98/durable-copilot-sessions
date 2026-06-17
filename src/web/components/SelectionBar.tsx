@@ -1,5 +1,8 @@
 import { useState } from "react";
+import { Archive, EyeOff, Palette, Pin, Play, Save, Tag, X } from "lucide-react";
 import { ColorPopover } from "./ColorPopover";
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 
 interface SelectionBarProps {
   count: number;
@@ -30,24 +33,32 @@ export function SelectionBar({
   const [colorOpen, setColorOpen] = useState(false);
 
   return (
-    <div className="selbar" role="region" aria-label="Bulk actions">
-      <span className="selbar__count">
-        {count} selected
-      </span>
-      <div className="selbar__actions">
-        <button type="button" className="btn btn--primary btn--xs" disabled={busy} onClick={onResumeAll}>
+    <div
+      role="region"
+      aria-label="Bulk actions"
+      className="fixed bottom-6 left-1/2 z-50 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover/95 px-3 py-2 shadow-lg backdrop-blur"
+    >
+      <span className="px-1 text-sm font-medium">{count} selected</span>
+
+      <Separator orientation="vertical" className="h-6" />
+
+      <div className="flex items-center gap-1">
+        <Button type="button" size="xs" disabled={busy} onClick={onResumeAll}>
+          <Play />
           Resume all
-        </button>
-        <span className="selbar__color">
-          <button
+        </Button>
+        <span className="relative">
+          <Button
             type="button"
-            className="btn btn--xs"
+            size="xs"
+            variant="secondary"
             disabled={busy}
             aria-expanded={colorOpen}
             onClick={() => setColorOpen((v) => !v)}
           >
+            <Palette />
             Set color
-          </button>
+          </Button>
           {colorOpen && (
             <ColorPopover
               current="#3b82f6"
@@ -60,25 +71,34 @@ export function SelectionBar({
             />
           )}
         </span>
-        <button type="button" className="btn btn--xs" disabled={busy} onClick={onPin}>
+        <Button type="button" size="xs" variant="secondary" disabled={busy} onClick={onPin}>
+          <Pin />
           Pin
-        </button>
-        <button type="button" className="btn btn--xs" disabled={busy} onClick={onHide}>
+        </Button>
+        <Button type="button" size="xs" variant="secondary" disabled={busy} onClick={onHide}>
+          <EyeOff />
           Hide
-        </button>
-        <button type="button" className="btn btn--xs" disabled={busy} onClick={onAddTag}>
+        </Button>
+        <Button type="button" size="xs" variant="secondary" disabled={busy} onClick={onAddTag}>
+          <Tag />
           Add tag
-        </button>
-        <button type="button" className="btn btn--xs" disabled={busy} onClick={onArchive}>
+        </Button>
+        <Button type="button" size="xs" variant="secondary" disabled={busy} onClick={onArchive}>
+          <Archive />
           Archive
-        </button>
-        <button type="button" className="btn btn--xs" disabled={busy} onClick={onSaveWorkspace}>
+        </Button>
+        <Button type="button" size="xs" variant="secondary" disabled={busy} onClick={onSaveWorkspace}>
+          <Save />
           Save as workspace
-        </button>
+        </Button>
       </div>
-      <button type="button" className="btn btn--ghost btn--xs selbar__clear" onClick={onClear}>
+
+      <Separator orientation="vertical" className="h-6" />
+
+      <Button type="button" size="xs" variant="ghost" onClick={onClear}>
+        <X />
         Clear
-      </button>
+      </Button>
     </div>
   );
 }

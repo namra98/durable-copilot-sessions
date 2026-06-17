@@ -10,6 +10,23 @@ import { triggerDownload } from "../lib/download";
 import { absoluteTime, relativeTime, shortId } from "../lib/format";
 import type { PushOptions, ToastKind } from "./Toast";
 import { ColorPopover } from "./ColorPopover";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Separator } from "@/components/ui/separator";
+import {
+  Copy,
+  Download,
+  GitBranch,
+  Pin,
+  Play,
+  Sparkles,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 
 type PushFn = (kind: ToastKind, text: string, options?: PushOptions) => number;
 
@@ -47,12 +64,10 @@ const KIND_LABEL: Record<Memory["kind"], string> = {
   file_context: "File",
 };
 
-const FOCUSABLE =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-
 /**
- * A right-side slide-in pane showing the full detail of one session over a
- * scrim. Focus is trapped while open; Escape or a scrim click closes it.
+ * A right-side, non-modal push panel showing the full detail of one session.
+ * App places it in a flex row beside the main content; Escape or the Close
+ * button dismisses it.
  */
 export function SessionDrawer(props: SessionDrawerProps) {
   const { id, windowTarget, push, onClose, onOpen, onResume, onPatch, onShowRelated, onReload } = props;
@@ -74,7 +89,7 @@ export function SessionDrawer(props: SessionDrawerProps) {
   const [tagDraft, setTagDraft] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const panelRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
 
   // Fetch the session detail whenever the target id changes.
@@ -131,12 +146,10 @@ export function SessionDrawer(props: SessionDrawerProps) {
     };
   }, [id]);
 
-  // Remember what had focus, then trap focus inside the drawer while open.
+  // Remember what had focus, move focus into the panel, then restore on close.
   useEffect(() => {
     restoreFocusRef.current = document.activeElement as HTMLElement | null;
-    const node = panelRef.current;
-    const first = node?.querySelector<HTMLElement>(FOCUSABLE);
-    (first ?? node)?.focus();
+    panelRef.current?.focus();
     return () => {
       restoreFocusRef.current?.focus?.();
     };
@@ -144,31 +157,7 @@ export function SessionDrawer(props: SessionDrawerProps) {
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        onClose();
-        return;
-      }
-      if (e.key !== "Tab") return;
-      const node = panelRef.current;
-      if (!node) return;
-      const focusable = Array.from(node.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-        (el) => el.offsetParent !== null || el === document.activeElement,
-      );
-      if (focusable.length === 0) {
-        e.preventDefault();
-        node.focus();
-        return;
-      }
-      const firstEl = focusable[0];
-      const lastEl = focusable[focusable.length - 1];
-      const active = document.activeElement as HTMLElement | null;
-      if (e.shiftKey && (active === firstEl || active === node)) {
-        e.preventDefault();
-        lastEl.focus();
-      } else if (!e.shiftKey && active === lastEl) {
-        e.preventDefault();
-        firstEl.focus();
-      }
+      if (e.key === "Escape") onClose();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -273,11 +262,14 @@ export function SessionDrawer(props: SessionDrawerProps) {
 
   const header = useMemo(
     () => (
-      <div className="drawer__head">
-        <span className="drawer__dot-wrap">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <span className="relative inline-flex">
           <button
             type="button"
-            className="drawer__dot"
+            className={cn(
+              "size-4 shrink-0 rounded-full ring-1 ring-inset ring-black/10 transition-transform",
+              "hover:scale-110 disabled:cursor-not-allowed disabled:opacity-50",
+            )}
             style={{ backgroundColor: color }}
             title="Change color"
             aria-label="Change tab color"
@@ -298,8 +290,8 @@ export function SessionDrawer(props: SessionDrawerProps) {
         </span>
 
         {editingTitle && session ? (
-          <input
-            className="drawer__title-input"
+          <Input
+            className="h-8 flex-1"
             value={draftTitle}
             autoFocus
             onChange={(e) => setDraftTitle(e.target.value)}
@@ -315,24 +307,29 @@ export function SessionDrawer(props: SessionDrawerProps) {
         ) : (
           <button
             type="button"
-            className="drawer__title"
+            className={cn(
+              "flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-1 py-0.5 text-left",
+              "text-sm font-semibold transition-colors hover:text-primary disabled:opacity-60",
+            )}
             title="Click to rename"
             disabled={!session}
             onClick={startEdit}
           >
-            {title}
-            {session?.pinned && <span className="pin" title="Pinned" aria-label="Pinned"> 📌</span>}
+            <span className="truncate">{title}</span>
+            {session?.pinned && (
+              <Pin className="size-3.5 shrink-0 text-primary" aria-label="Pinned" />
+            )}
           </button>
         )}
 
-        <button
-          type="button"
-          className="drawer__close"
+        <Button
+          variant="ghost"
+          size="icon-sm"
           aria-label="Close session detail"
           onClick={onClose}
         >
-          ×
-        </button>
+          <X />
+        </Button>
       </div>
     ),
     [
@@ -351,165 +348,157 @@ export function SessionDrawer(props: SessionDrawerProps) {
   );
 
   return (
-    <div className="drawer-scrim" role="presentation" onMouseDown={onClose}>
-      <aside
-        className="drawer"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Session detail"
-        ref={panelRef}
-        tabIndex={-1}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        {header}
+    <aside
+      className={cn(
+        "flex h-full w-[440px] shrink-0 flex-col overflow-hidden border-l border-border bg-card text-card-foreground",
+        "animate-in slide-in-from-right-2 fade-in duration-150",
+      )}
+      aria-label="Session detail"
+      ref={panelRef}
+      tabIndex={-1}
+    >
+      {header}
 
-        {loading ? (
-          <div className="drawer__body drawer__body--center">
-            <p className="empty__sub">Loading session…</p>
-          </div>
-        ) : error ? (
-          <div className="drawer__body drawer__body--center">
-            <p className="empty__title">Couldn’t load session</p>
-            <p className="empty__sub">{error}</p>
-          </div>
-        ) : session ? (
-          <>
-            <div className="drawer__actions">
-              <button
-                type="button"
-                className="btn btn--primary"
-                disabled={busy}
-                onClick={() => onResume(session)}
-              >
-                ▶ Resume
-              </button>
-              <button
-                type="button"
-                className="btn"
+      {loading ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center">
+          <p className="text-sm text-muted-foreground">Loading session…</p>
+        </div>
+      ) : error ? (
+        <div className="flex flex-1 flex-col items-center justify-center gap-1 p-6 text-center">
+          <p className="text-sm font-semibold">Couldn’t load session</p>
+          <p className="text-xs text-muted-foreground">{error}</p>
+        </div>
+      ) : session ? (
+        <div className="flex-1 overflow-y-auto">
+          <div className="space-y-4 p-4">
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" disabled={busy} onClick={() => onResume(session)}>
+                <Play />
+                Resume
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
                 disabled={busy}
                 onClick={() => setForkOpen((v) => !v)}
               >
-                ⑂ Fork…
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost"
+                <GitBranch />
+                Fork…
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 disabled={busy}
                 onClick={() => applyPatch({ pinned: !session.pinned })}
               >
+                <Pin />
                 {session.pinned ? "Unpin" : "Pin"}
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost"
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 disabled={busy}
                 onClick={() => applyPatch({ hidden: !session.hidden })}
               >
                 {session.hidden ? "Unhide" : "Hide"}
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost"
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 disabled={busy}
                 onClick={() => applyPatch({ archived: !session.archived })}
               >
                 {session.archived ? "Unarchive" : "Archive"}
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost"
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 disabled={busy}
                 title="Download the session transcript as markdown"
                 onClick={() => void downloadTranscript()}
               >
-                ⭳ Transcript
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost"
+                <Download />
+                Transcript
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => onShowRelated(session.id, displayName(session))}
               >
-                ◎ Related
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost"
+                <Sparkles />
+                Related
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
                 onClick={() => void copy(session.id, "Session id")}
               >
+                <Copy />
                 Copy id
-              </button>
+              </Button>
             </div>
 
             {forkOpen && (
-              <div className="drawer__fork">
-                <label className="field field--block">
-                  <span className="field__label">Lineage note (optional)</span>
-                  <input
-                    className="input"
+              <div className="space-y-3 rounded-xl border border-border bg-muted/30 p-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="fork-note">Lineage note (optional)</Label>
+                  <Input
+                    id="fork-note"
                     value={forkNote}
                     autoFocus
                     placeholder="try the alternate approach"
                     onChange={(e) => setForkNote(e.target.value)}
                   />
-                </label>
-                <label className="check">
-                  <input
-                    type="checkbox"
+                </div>
+                <Label className="cursor-pointer font-normal">
+                  <Checkbox
                     checked={forkLaunch}
-                    onChange={(e) => setForkLaunch(e.target.checked)}
+                    onCheckedChange={(v) => setForkLaunch(v === true)}
                   />
                   Open a terminal tab for the fork
-                </label>
-                <div className="modal__actions">
-                  <button
-                    type="button"
-                    className="btn btn--ghost"
+                </Label>
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => setForkOpen(false)}
                     disabled={busy}
                   >
                     Cancel
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--primary"
-                    onClick={() => void submitFork()}
-                    disabled={busy}
-                  >
+                  </Button>
+                  <Button size="sm" onClick={() => void submitFork()} disabled={busy}>
                     Create fork
-                  </button>
+                  </Button>
                 </div>
               </div>
             )}
 
-            <div className="drawer__body">
-              <div className="drawer__badges">
-                <span
-                  className={`badge badge--${session.liveness}`}
-                  title={`Liveness: ${session.liveness}`}
-                >
-                  {LIVENESS_LABEL[session.liveness]}
-                </span>
-                <span className="tag" title="Session role">
-                  {session.role === "child" ? "child" : "primary"}
-                </span>
-                {session.branchOf && (
-                  <span className="tag tag--fork" title="Created via fork">
-                    ⑂ fork
-                  </span>
-                )}
-                {session.managed && <span className="tag" title="Has tool-managed metadata">managed</span>}
-              </div>
+            <Separator />
 
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={session.liveness} title={`Liveness: ${session.liveness}`}>
+                {LIVENESS_LABEL[session.liveness]}
+              </Badge>
+              <Badge variant="outline" title="Session role">
+                {session.role === "child" ? "child" : "primary"}
+              </Badge>
+              {session.branchOf && (
+                <Badge variant="outline" title="Created via fork">
+                  <GitBranch />
+                  fork
+                </Badge>
+              )}
+              {session.managed && (
+                <Badge variant="secondary" title="Has tool-managed metadata">
+                  managed
+                </Badge>
+              )}
+            </div>
+
+            <div className="space-y-2.5">
               <DetailRow label="Session id">
-                <code className="drawer__id">{session.id}</code>
-                <button
-                  type="button"
-                  className="drawer__copy"
-                  aria-label="Copy session id"
-                  onClick={() => void copy(session.id, "Session id")}
-                >
-                  ⧉
-                </button>
+                <code className="min-w-0 break-all font-mono text-xs">{session.id}</code>
+                <CopyButton label="Copy session id" onClick={() => void copy(session.id, "Session id")} />
               </DetailRow>
 
               {session.repository && (
@@ -519,33 +508,42 @@ export function SessionDrawer(props: SessionDrawerProps) {
               )}
               {session.branch && (
                 <DetailRow label="Branch">
-                  <span>⎇ {session.branch}</span>
+                  <span className="flex min-w-0 items-center gap-1">
+                    <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
+                    <span className="truncate">{session.branch}</span>
+                  </span>
                 </DetailRow>
               )}
 
               <DetailRow label="Working dir">
-                <code className={`drawer__path${session.cwdExists ? "" : " drawer__path--missing"}`}>
-                  {!session.cwdExists && <span aria-hidden="true">⚠ </span>}
+                <code
+                  className={cn(
+                    "min-w-0 break-all font-mono text-xs",
+                    !session.cwdExists && "text-destructive",
+                  )}
+                >
+                  {!session.cwdExists && (
+                    <TriangleAlert
+                      className="mr-1 inline size-3.5 align-text-bottom"
+                      aria-hidden="true"
+                    />
+                  )}
                   {session.cwd || "(no working directory)"}
                 </code>
                 {session.cwd && (
-                  <button
-                    type="button"
-                    className="drawer__copy"
-                    aria-label="Copy working directory path"
+                  <CopyButton
+                    label="Copy working directory path"
                     onClick={() => void copy(session.cwd, "Path")}
-                  >
-                    ⧉
-                  </button>
+                  />
                 )}
               </DetailRow>
               {!session.cwdExists && session.cwd && (
-                <p className="drawer__hint drawer__hint--warn">This working directory is missing on disk.</p>
+                <p className="text-xs text-destructive">This working directory is missing on disk.</p>
               )}
 
               {session.gitRoot && (
                 <DetailRow label="Git root">
-                  <code className="drawer__path">{session.gitRoot}</code>
+                  <code className="min-w-0 break-all font-mono text-xs">{session.gitRoot}</code>
                 </DetailRow>
               )}
               {session.clientName && (
@@ -563,12 +561,12 @@ export function SessionDrawer(props: SessionDrawerProps) {
 
               {session.livePids.length > 0 && (
                 <DetailRow label="Live PIDs">
-                  <span>{session.livePids.join(", ")}</span>
+                  <span className="font-mono text-xs">{session.livePids.join(", ")}</span>
                 </DetailRow>
               )}
               {session.groupPid !== undefined && (
                 <DetailRow label="Group PID">
-                  <span>{session.groupPid}</span>
+                  <span className="font-mono text-xs">{session.groupPid}</span>
                 </DetailRow>
               )}
 
@@ -576,7 +574,7 @@ export function SessionDrawer(props: SessionDrawerProps) {
                 <DetailRow label="Forked from">
                   <button
                     type="button"
-                    className="drawer__link"
+                    className="font-mono text-xs text-primary hover:underline"
                     onClick={() => onOpen(parent)}
                     title="Open the parent session"
                   >
@@ -589,108 +587,114 @@ export function SessionDrawer(props: SessionDrawerProps) {
                   <span>{session.branchNote}</span>
                 </DetailRow>
               )}
+            </div>
 
-              {session.summary && (
-                <div className="drawer__section">
-                  <h4 className="drawer__section-title">Summary</h4>
-                  <p className="drawer__summary">{session.summary}</p>
-                </div>
-              )}
+            {session.summary && (
+              <>
+                <Separator />
+                <section className="space-y-2">
+                  <SectionTitle>Summary</SectionTitle>
+                  <p className="text-sm leading-relaxed text-muted-foreground">{session.summary}</p>
+                </section>
+              </>
+            )}
 
-              <div className="drawer__section">
-                <h4 className="drawer__section-title">
-                  Tags
-                  {session.tags && session.tags.length > 0 && (
-                    <span className="count">{session.tags.length}</span>
-                  )}
-                </h4>
-                <div className="drawer__tags">
-                  {(session.tags ?? []).map((t) => (
-                    <span className="tagchip tagchip--removable" key={t}>
-                      {t}
-                      <button
-                        type="button"
-                        className="tagchip__remove"
-                        aria-label={`Remove tag ${t}`}
-                        disabled={busy}
-                        onClick={() => removeTag(t)}
-                      >
-                        ×
-                      </button>
-                    </span>
-                  ))}
-                  {(!session.tags || session.tags.length === 0) && (
-                    <span className="drawer__hint">No tags yet.</span>
-                  )}
-                </div>
-                <div className="drawer__tag-add">
-                  <input
-                    className="input"
-                    value={tagDraft}
-                    placeholder="add a tag…"
-                    aria-label="Add tag"
-                    disabled={busy}
-                    onChange={(e) => setTagDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        addTag();
-                      }
-                    }}
-                  />
-                  <button
-                    type="button"
-                    className="btn btn--xs"
-                    disabled={busy || !tagDraft.trim()}
-                    onClick={addTag}
+            <Separator />
+
+            <section className="space-y-2">
+              <SectionTitle count={session.tags?.length || undefined}>Tags</SectionTitle>
+              <div className="flex flex-wrap gap-1.5">
+                {(session.tags ?? []).map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-secondary px-2 py-0.5 text-xs text-secondary-foreground"
                   >
-                    Add
-                  </button>
-                </div>
-              </div>
-
-              <div className="drawer__section">
-                <h4 className="drawer__section-title">
-                  Children <span className="count">{childCount}</span>
-                </h4>
-                {children.length === 0 ? (
-                  <p className="drawer__hint">No live child sessions.</p>
-                ) : (
-                  <ul className="drawer__children">
-                    {children.map((child) => (
-                      <li className="drawer__child" key={child.id}>
-                        <span
-                          className={`childrow__dot childrow__dot--${child.liveness}`}
-                          aria-hidden="true"
-                        />
-                        <button
-                          type="button"
-                          className="drawer__child-name"
-                          title={child.cwd}
-                          onClick={() => onOpen(child.id)}
-                        >
-                          {child.title || child.name || shortId(child.id)}
-                        </button>
-                        <button
-                          type="button"
-                          className="btn btn--ghost btn--xs"
-                          onClick={() => onResume(child)}
-                        >
-                          Resume
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
+                    {t}
+                    <button
+                      type="button"
+                      className="text-muted-foreground transition-colors hover:text-destructive disabled:opacity-50"
+                      aria-label={`Remove tag ${t}`}
+                      disabled={busy}
+                      onClick={() => removeTag(t)}
+                    >
+                      <X className="size-3" />
+                    </button>
+                  </span>
+                ))}
+                {(!session.tags || session.tags.length === 0) && (
+                  <span className="text-xs text-muted-foreground">No tags yet.</span>
                 )}
               </div>
+              <div className="flex gap-2">
+                <Input
+                  className="h-8"
+                  value={tagDraft}
+                  placeholder="add a tag…"
+                  aria-label="Add tag"
+                  disabled={busy}
+                  onChange={(e) => setTagDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addTag();
+                    }
+                  }}
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  disabled={busy || !tagDraft.trim()}
+                  onClick={addTag}
+                >
+                  Add
+                </Button>
+              </div>
+            </section>
 
-              <MemorySection title="Session memories" memories={memories} />
-              <MemorySection title="Related memories" memories={related} />
-            </div>
-          </>
-        ) : null}
-      </aside>
-    </div>
+            <Separator />
+
+            <section className="space-y-2">
+              <SectionTitle count={childCount}>Children</SectionTitle>
+              {children.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No live child sessions.</p>
+              ) : (
+                <ul className="space-y-1">
+                  {children.map((child) => (
+                    <li key={child.id} className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "size-2 shrink-0 rounded-full",
+                          child.liveness === "live" && "bg-live",
+                          child.liveness === "stale" && "bg-stale",
+                          child.liveness === "inactive" && "bg-inactive",
+                        )}
+                        aria-hidden="true"
+                      />
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 truncate text-left text-sm transition-colors hover:text-primary"
+                        title={child.cwd}
+                        onClick={() => onOpen(child.id)}
+                      >
+                        {child.title || child.name || shortId(child.id)}
+                      </button>
+                      <Button variant="ghost" size="xs" onClick={() => onResume(child)}>
+                        Resume
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+
+            <Separator />
+            <MemorySection title="Session memories" memories={memories} />
+            <Separator />
+            <MemorySection title="Related memories" memories={related} />
+          </div>
+        </div>
+      ) : null}
+    </aside>
   );
 }
 
@@ -701,10 +705,46 @@ interface DetailRowProps {
 
 function DetailRow({ label, children }: DetailRowProps) {
   return (
-    <div className="drawer__row">
-      <span className="drawer__row-label">{label}</span>
-      <span className="drawer__row-value">{children}</span>
+    <div className="grid grid-cols-[110px_1fr] items-start gap-3 text-sm">
+      <span className="pt-0.5 text-xs font-medium text-muted-foreground">{label}</span>
+      <span className="flex min-w-0 items-center gap-1.5">{children}</span>
     </div>
+  );
+}
+
+interface SectionTitleProps {
+  count?: number;
+  children: ReactNode;
+}
+
+function SectionTitle({ count, children }: SectionTitleProps) {
+  return (
+    <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+      {children}
+      {count !== undefined && (
+        <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
+          {count}
+        </span>
+      )}
+    </h4>
+  );
+}
+
+interface CopyButtonProps {
+  label: string;
+  onClick: () => void;
+}
+
+function CopyButton({ label, onClick }: CopyButtonProps) {
+  return (
+    <button
+      type="button"
+      className="shrink-0 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+      aria-label={label}
+      onClick={onClick}
+    >
+      <Copy className="size-3.5" />
+    </button>
   );
 }
 
@@ -715,28 +755,36 @@ interface MemorySectionProps {
 
 function MemorySection({ title, memories }: MemorySectionProps) {
   return (
-    <div className="drawer__section">
-      <h4 className="drawer__section-title">
-        {title}
-        {memories && <span className="count">{memories.length}</span>}
-      </h4>
+    <section className="space-y-2">
+      <SectionTitle count={memories ? memories.length : undefined}>{title}</SectionTitle>
       {memories === null ? (
-        <p className="drawer__hint">Loading…</p>
+        <p className="text-xs text-muted-foreground">Loading…</p>
       ) : memories.length === 0 ? (
-        <p className="drawer__hint">None found.</p>
+        <p className="text-xs text-muted-foreground">None found.</p>
       ) : (
-        <div className="drawer__memlist">
+        <div className="space-y-2">
           {memories.map((m) => (
-            <article className="drawer__memcard" key={m.id}>
-              <header className="drawer__memhead">
-                <span className={`memchip memchip--${m.kind}`}>{KIND_LABEL[m.kind]}</span>
-                {m.title && <span className="drawer__memtitle" title={m.title}>{m.title}</span>}
+            <article
+              key={m.id}
+              className="space-y-1 rounded-lg border border-border bg-muted/30 p-2.5"
+            >
+              <header className="flex items-center gap-2">
+                <Badge variant="outline" className="text-[10px]">
+                  {KIND_LABEL[m.kind]}
+                </Badge>
+                {m.title && (
+                  <span className="truncate text-xs font-medium" title={m.title}>
+                    {m.title}
+                  </span>
+                )}
               </header>
-              <p className="drawer__membody">{m.content}</p>
+              <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                {m.content}
+              </p>
             </article>
           ))}
         </div>
       )}
-    </div>
+    </section>
   );
 }

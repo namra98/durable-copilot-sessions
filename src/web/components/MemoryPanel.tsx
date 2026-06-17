@@ -1,4 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  BrainCircuit,
+  Clock,
+  Copy,
+  File,
+  FileText,
+  GitBranch,
+  GitCommitHorizontal,
+  GraduationCap,
+  ListTodo,
+  MessageSquare,
+  Play,
+  RefreshCw,
+  Search,
+  Sparkles,
+  X,
+  type LucideIcon,
+} from "lucide-react";
 import type {
   Memory,
   MemoryKind,
@@ -9,6 +27,19 @@ import type {
 import * as api from "../api/client";
 import { buildContextPack, isRecallEmpty } from "../lib/contextPack";
 import { relativeTime } from "../lib/format";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const SEARCH_DEBOUNCE_MS = 250;
 
@@ -22,6 +53,18 @@ const KIND_LABEL: Record<MemoryKind, string> = {
   summary: "Summary",
   file_context: "File",
 };
+
+const KIND_ICON: Record<MemoryKind, LucideIcon> = {
+  chat: MessageSquare,
+  decision: GitCommitHorizontal,
+  todo: ListTodo,
+  learning: GraduationCap,
+  summary: FileText,
+  file_context: File,
+};
+
+/** Sentinel used by the kind <Select> to represent the empty "all kinds" value. */
+const ALL_KINDS = "__all__";
 
 /** Seed used to deep-link into the "Related memories" view from elsewhere. */
 export interface RelatedSeed {
@@ -170,227 +213,282 @@ export function MemoryPanel({ windowTarget, push, relatedSeed, onClearRelated }:
   }, [push]);
 
   return (
-    <section className="panel mempanel">
-      <div className="panel__head">
-        <h2>Memory &amp; recall</h2>
-        <div className="mempanel__head-actions">
-          <div className="seg" role="group" aria-label="Memory mode">
-            <button
+    <section className="flex flex-col gap-4 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-lg font-semibold">Memory &amp; recall</h2>
+        <div className="flex flex-wrap items-center gap-2">
+          <div
+            className="inline-flex items-center gap-0.5 rounded-md border border-border bg-muted p-0.5"
+            role="group"
+            aria-label="Memory mode"
+          >
+            <Button
               type="button"
-              className={`seg__btn${mode === "search" ? " seg__btn--on" : ""}`}
+              variant="ghost"
+              size="sm"
+              aria-pressed={mode === "search"}
+              className={cn(
+                "h-7",
+                mode === "search"
+                  ? "bg-background text-foreground shadow-sm hover:bg-background"
+                  : "text-muted-foreground",
+              )}
               onClick={() => setMode("search")}
             >
+              <Search className="size-4" />
               Search
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className={`seg__btn${mode === "recall" ? " seg__btn--on" : ""}`}
+              variant="ghost"
+              size="sm"
+              aria-pressed={mode === "recall"}
+              className={cn(
+                "h-7",
+                mode === "recall"
+                  ? "bg-background text-foreground shadow-sm hover:bg-background"
+                  : "text-muted-foreground",
+              )}
               onClick={() => setMode("recall")}
             >
+              <BrainCircuit className="size-4" />
               Recall for repo
-            </button>
+            </Button>
           </div>
-          <button type="button" className="btn" onClick={() => void reindex()} disabled={reindexing}>
+          <Button type="button" variant="outline" onClick={() => void reindex()} disabled={reindexing}>
+            <RefreshCw className={cn("size-4", reindexing && "animate-spin")} />
             {reindexing ? "Reindexing…" : "Reindex memories"}
-          </button>
+          </Button>
         </div>
       </div>
 
       {relatedSeed && (
-        <div className="mem-related">
-          <div className="mem-related__head">
-            <span className="mem-related__title">
+        <Card className="gap-3 border-border py-3">
+          <div className="flex items-center justify-between gap-2 px-4">
+            <span className="flex items-center gap-2 text-sm font-semibold">
+              <Sparkles className="size-4 text-primary" />
               Related to “{relatedSeed.label}”
             </span>
-            <button type="button" className="btn btn--ghost" onClick={onClearRelated}>
+            <Button type="button" variant="ghost" size="xs" onClick={onClearRelated}>
+              <X className="size-4" />
               Dismiss
-            </button>
+            </Button>
           </div>
-          {relatedError ? (
-            <p className="mem-related__error">{relatedError}</p>
-          ) : related === null ? (
-            <p className="mem-related__loading">Loading related memories…</p>
-          ) : related.length === 0 ? (
-            <p className="mem-related__empty">No related memories found.</p>
-          ) : (
-            <div className="memgrid">
-              {related.map((m) => (
-                <MemoryCard key={m.id} memory={m} onResume={resume} />
-              ))}
-            </div>
-          )}
-        </div>
+          <div className="px-4">
+            {relatedError ? (
+              <p className="text-sm text-destructive">{relatedError}</p>
+            ) : related === null ? (
+              <p className="text-sm text-muted-foreground">Loading related memories…</p>
+            ) : related.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No related memories found.</p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {related.map((m) => (
+                  <MemoryCard key={m.id} memory={m} onResume={resume} />
+                ))}
+              </div>
+            )}
+          </div>
+        </Card>
       )}
 
       {mode === "search" ? (
         <>
-          <div className="toolbar">
-            <div className="toolbar__search">
-              <span className="toolbar__search-icon" aria-hidden="true">⌕</span>
-              <input
-                className="input toolbar__search-input"
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="relative min-w-[16rem] flex-1">
+              <Search
+                className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden="true"
+              />
+              <Input
                 type="search"
                 value={queryInput}
                 placeholder="Search anything you discussed, or paste a session id…"
                 aria-label="Search memories"
+                className="pl-9"
                 onChange={(e) => setQueryInput(e.target.value)}
               />
             </div>
 
-            <label className="field">
-              <span className="field__label">Kind</span>
-              <select
-                className="select"
-                value={kind}
-                onChange={(e) => setKind(e.target.value as MemoryKind | "")}
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Kind</span>
+              <Select
+                value={kind || ALL_KINDS}
+                onValueChange={(v) => setKind(v === ALL_KINDS ? "" : (v as MemoryKind))}
               >
-                <option value="">All kinds</option>
-                {KINDS.map((k) => (
-                  <option key={k} value={k}>
-                    {KIND_LABEL[k]}
-                  </option>
-                ))}
-              </select>
-            </label>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="All kinds" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_KINDS}>All kinds</SelectItem>
+                  {KINDS.map((k) => {
+                    const Icon = KIND_ICON[k];
+                    return (
+                      <SelectItem key={k} value={k}>
+                        <Icon className="size-4" />
+                        {KIND_LABEL[k]}
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            </div>
 
-            <label className="field">
-              <span className="field__label">Repo</span>
-              <input
-                className="input"
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Repo</span>
+              <Input
                 value={repository}
                 placeholder="owner/repo"
+                className="w-44 font-mono"
                 onChange={(e) => setRepository(e.target.value)}
               />
-            </label>
+            </div>
           </div>
 
           {searchError ? (
-            <div className="empty empty--cta">
-              <p className="empty__title">Memory search unavailable</p>
-              <p className="empty__sub">{searchError}</p>
-            </div>
+            <EmptyState
+              title="Memory search unavailable"
+              subtitle={searchError}
+              icon={Search}
+            />
           ) : searching && hits.length === 0 ? (
-            <div className="empty">
-              <p className="empty__sub">Searching…</p>
-            </div>
+            <EmptyState subtitle="Searching…" icon={Search} />
           ) : hits.length === 0 ? (
             query.trim() === "" ? (
-              <div className="empty empty--cta">
-                <p className="empty__title">No memories indexed yet</p>
-                <p className="empty__sub">
-                  Click “Reindex memories” to build your recall index from past sessions.
-                </p>
-              </div>
+              <EmptyState
+                title="No memories indexed yet"
+                subtitle="Click “Reindex memories” to build your recall index from past sessions."
+                icon={BrainCircuit}
+              />
             ) : (
-              <div className="empty">
-                <p className="empty__sub">No memories match “{query.trim()}”.</p>
-              </div>
+              <EmptyState subtitle={`No memories match “${query.trim()}”.`} icon={Search} />
             )
           ) : (
             <>
               {query.trim() === "" && (
-                <p className="mem-recent-label">Recent memories ({hits.length})</p>
+                <p className="text-xs font-medium text-muted-foreground">
+                  Recent memories ({hits.length})
+                </p>
               )}
-              <div className="memgrid">
-                {hits.map((hit) => (
-                  <MemoryCard
-                    key={hit.memory.id}
-                    memory={hit.memory}
-                    snippet={hit.snippet}
-                    score={hit.score}
-                    onResume={resume}
-                  />
-                ))}
-              </div>
+              <ScrollArea className="max-h-[70vh] pr-3">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {hits.map((hit) => (
+                    <MemoryCard
+                      key={hit.memory.id}
+                      memory={hit.memory}
+                      snippet={hit.snippet}
+                      score={hit.score}
+                      onResume={resume}
+                    />
+                  ))}
+                </div>
+              </ScrollArea>
             </>
           )}
         </>
       ) : (
         <>
-          <div className="toolbar">
-            <label className="field field--block">
-              <span className="field__label">Repository</span>
-              <input
-                className="input"
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex min-w-[16rem] flex-1 flex-col gap-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Repository</span>
+              <Input
                 value={recallRepo}
                 placeholder="owner/repo"
+                className="font-mono"
                 onChange={(e) => setRecallRepo(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") void runRecall();
                 }}
               />
-            </label>
-            <label className="field">
-              <span className="field__label">Branch</span>
-              <input
-                className="input"
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-xs font-medium text-muted-foreground">Branch</span>
+              <Input
                 value={recallBranch}
                 placeholder="(optional)"
+                className="w-44 font-mono"
                 onChange={(e) => setRecallBranch(e.target.value)}
               />
-            </label>
-            <button
+            </div>
+            <Button
               type="button"
-              className="btn btn--primary"
               onClick={() => void runRecall()}
               disabled={!recallRepo.trim() || recalling}
             >
+              <BrainCircuit className="size-4" />
               Recall
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
-              className="btn"
+              variant="outline"
               onClick={() => void copyPack()}
               disabled={!pack || isRecallEmpty(pack)}
             >
+              <Copy className="size-4" />
               Copy context pack
-            </button>
+            </Button>
           </div>
 
           {recallError ? (
-            <div className="empty empty--cta">
-              <p className="empty__title">Recall unavailable</p>
-              <p className="empty__sub">{recallError}</p>
-            </div>
+            <EmptyState title="Recall unavailable" subtitle={recallError} icon={BrainCircuit} />
           ) : !recallSubmitted ? (
-            <div className="empty">
-              <p className="empty__title">Recall a repository’s context</p>
-              <p className="empty__sub">
-                Enter a repo to gather its decisions, open todos, and key files.
-              </p>
-            </div>
+            <EmptyState
+              title="Recall a repository’s context"
+              subtitle="Enter a repo to gather its decisions, open todos, and key files."
+              icon={Sparkles}
+            />
           ) : recalling ? (
-            <div className="empty">
-              <p className="empty__sub">Recalling…</p>
-            </div>
+            <EmptyState subtitle="Recalling…" icon={BrainCircuit} />
           ) : pack && isRecallEmpty(pack) ? (
-            <div className="empty">
-              <p className="empty__sub">No memories recalled for this repository yet.</p>
-            </div>
+            <EmptyState subtitle="No memories recalled for this repository yet." icon={BrainCircuit} />
           ) : pack ? (
-            <div className="recall">
-              <RecallGroup title="Decisions" memories={pack.decisions} onResume={resume} />
-              <RecallGroup title="Open todos" memories={pack.todos} onResume={resume} />
-              <RecallGroup title="Summaries" memories={pack.summaries} onResume={resume} />
-              {pack.files.length > 0 && (
-                <div className="recall__group">
-                  <h3 className="recall__title">
-                    Key files <span className="count">{pack.files.length}</span>
-                  </h3>
-                  <ul className="recall__files">
-                    {pack.files.map((f) => (
-                      <li key={f} className="recall__file" title={f}>
-                        {f}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </div>
+            <ScrollArea className="max-h-[70vh] pr-3">
+              <div className="space-y-3">
+                <RecallGroup title="Decisions" memories={pack.decisions} onResume={resume} />
+                <RecallGroup title="Open todos" memories={pack.todos} onResume={resume} />
+                <RecallGroup title="Summaries" memories={pack.summaries} onResume={resume} />
+                {pack.files.length > 0 && (
+                  <div className="space-y-2">
+                    <h3 className="flex items-center gap-2 text-sm font-semibold">
+                      <File className="size-4 text-muted-foreground" />
+                      Key files
+                      <Badge variant="secondary">{pack.files.length}</Badge>
+                    </h3>
+                    <ul className="space-y-1">
+                      {pack.files.map((f) => (
+                        <li
+                          key={f}
+                          className="truncate rounded-md border border-border bg-card px-3 py-1.5 font-mono text-xs text-muted-foreground"
+                          title={f}
+                        >
+                          {f}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            </ScrollArea>
           ) : null}
         </>
       )}
     </section>
+  );
+}
+
+interface EmptyStateProps {
+  title?: string;
+  subtitle?: string;
+  icon: LucideIcon;
+}
+
+function EmptyState({ title, subtitle, icon: Icon }: EmptyStateProps) {
+  return (
+    <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card/50 px-6 py-12 text-center">
+      <Icon className="size-6 text-muted-foreground" />
+      {title && <p className="text-sm font-semibold">{title}</p>}
+      {subtitle && <p className="max-w-md text-sm text-muted-foreground">{subtitle}</p>}
+    </div>
   );
 }
 
@@ -403,11 +501,12 @@ interface RecallGroupProps {
 function RecallGroup({ title, memories, onResume }: RecallGroupProps) {
   if (memories.length === 0) return null;
   return (
-    <div className="recall__group">
-      <h3 className="recall__title">
-        {title} <span className="count">{memories.length}</span>
+    <div className="space-y-2">
+      <h3 className="flex items-center gap-2 text-sm font-semibold">
+        {title}
+        <Badge variant="secondary">{memories.length}</Badge>
       </h3>
-      <div className="memgrid">
+      <div className="grid gap-3 sm:grid-cols-2">
         {memories.map((m) => (
           <MemoryCard key={m.id} memory={m} onResume={onResume} />
         ))}
@@ -425,38 +524,63 @@ interface MemoryCardProps {
 
 function MemoryCard({ memory, snippet, score, onResume }: MemoryCardProps) {
   const body = snippet ?? memory.content;
+  const Icon = KIND_ICON[memory.kind];
   return (
-    <article className="memcard">
-      <header className="memcard__head">
-        <span className={`memchip memchip--${memory.kind}`}>{KIND_LABEL[memory.kind]}</span>
-        {memory.title && <span className="memcard__title" title={memory.title}>{memory.title}</span>}
-        {score !== undefined && (
-          <span className="memcard__score" title="Relevance score">
-            {score.toFixed(2)}
-          </span>
-        )}
-      </header>
+    <Card className="gap-3 py-0">
+      <div className="flex flex-col gap-3 p-4">
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary">
+            <Icon className="size-3" />
+            {KIND_LABEL[memory.kind]}
+          </Badge>
+          {memory.title && (
+            <span className="truncate text-sm font-semibold" title={memory.title}>
+              {memory.title}
+            </span>
+          )}
+          {score !== undefined && (
+            <span
+              className="ml-auto font-mono text-xs text-muted-foreground"
+              title="Relevance score"
+            >
+              {score.toFixed(2)}
+            </span>
+          )}
+        </div>
 
-      <p className="memcard__body">{body}</p>
+        <p className="line-clamp-4 text-sm text-foreground/90">{body}</p>
 
-      <footer className="memcard__foot">
-        {memory.repository && (
-          <span className="memcard__repo" title={memory.repository}>
-            {memory.repository}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+          {memory.repository && (
+            <span className="truncate font-mono" title={memory.repository}>
+              {memory.repository}
+            </span>
+          )}
+          {memory.branch && (
+            <span className="flex items-center gap-1 font-mono">
+              <GitBranch className="size-3" />
+              {memory.branch}
+            </span>
+          )}
+          <span
+            className="flex items-center gap-1"
+            title={new Date(memory.updatedAt).toLocaleString()}
+          >
+            <Clock className="size-3" />
+            {relativeTime(new Date(memory.updatedAt).toISOString())}
           </span>
-        )}
-        {memory.branch && <span className="memcard__branch">⎇ {memory.branch}</span>}
-        <span className="memcard__time" title={new Date(memory.updatedAt).toLocaleString()}>
-          {relativeTime(new Date(memory.updatedAt).toISOString())}
-        </span>
-        <button
-          type="button"
-          className="btn btn--ghost memcard__resume"
-          onClick={() => onResume(memory.sessionId, memory.title)}
-        >
-          ▶ Resume session
-        </button>
-      </footer>
-    </article>
+          <Button
+            type="button"
+            variant="ghost"
+            size="xs"
+            className="ml-auto"
+            onClick={() => onResume(memory.sessionId, memory.title)}
+          >
+            <Play className="size-4" />
+            Resume session
+          </Button>
+        </div>
+      </div>
+    </Card>
   );
 }

@@ -1,5 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
+import {
+  Command as CommandIcon,
+  Diamond,
+  Download,
+  LayoutGrid,
+  Moon,
+  RefreshCw,
+  Rows3,
+  Save,
+  Camera,
+  Sun,
+  TriangleAlert,
+  Upload,
+  ChevronRight,
+} from "lucide-react";
 import type { AppConfig, LaunchResult, TabSpec, WindowSpec, WindowTarget, Workspace } from "../core/types";
 import * as api from "./api/client";
 import type {
@@ -25,6 +40,33 @@ import { resolveColor } from "./lib/colors";
 import { triggerDownload } from "./lib/download";
 import { useLocalStorage } from "./lib/useLocalStorage";
 import { useTheme, useDensity } from "./lib/preferences";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   applyQuickFilters,
   childrenOf,
@@ -677,318 +719,363 @@ export function App() {
   const isEmpty = !loading && visibleSessions.length === 0;
   const filtersActive = search.trim() !== "" || quickFilters.length > 0;
 
+  const gridClass =
+    density === "compact"
+      ? "grid grid-cols-[repeat(auto-fill,minmax(16rem,1fr))] gap-3"
+      : "grid grid-cols-[repeat(auto-fill,minmax(20rem,1fr))] gap-4";
+
   return (
-    <div className="app">
-      <header className="topbar">
-        <div className="topbar__brand">
-          <span className="topbar__logo" aria-hidden="true">◆</span>
+    <TooltipProvider delayDuration={300}>
+    <div className="flex h-screen flex-col overflow-hidden bg-background text-foreground">
+      <header className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-4 border-b border-border bg-background/80 px-6 py-3 backdrop-blur">
+        <div className="flex items-center gap-3">
+          <span
+            className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary"
+            aria-hidden="true"
+          >
+            <Diamond className="size-5 fill-current" />
+          </span>
           <div>
-            <h1 className="topbar__title">Durable Copilot Sessions</h1>
-            <p className="topbar__sub">
+            <h1 className="text-sm font-semibold leading-tight">Durable Copilot Sessions</h1>
+            <p className="text-xs text-muted-foreground">
               {version ? `v${version}` : "local dashboard"}
               {config ? ` · API :${config.apiPort}` : ""}
             </p>
           </div>
         </div>
 
-        <div className="topbar__controls">
-          <label className="field">
-            <span className="field__label">Open in</span>
-            <select
-              className="select"
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs text-muted-foreground">Open in</span>
+            <Select
               value={windowTarget}
-              onChange={(e) => setWindowTarget(e.target.value as WindowTarget)}
+              onValueChange={(v) => setWindowTarget(v as WindowTarget)}
             >
-              <option value="new">New window</option>
-              <option value="current">Current window</option>
-            </select>
-          </label>
+              <SelectTrigger size="sm" className="w-[9.5rem]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="new">New window</SelectItem>
+                <SelectItem value="current">Current window</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-          <button
-            type="button"
-            className="btn btn--icon"
-            aria-label="Open command palette"
-            title="Command palette (Ctrl/Cmd+K)"
-            onClick={() => setPaletteOpen(true)}
-          >
-            ⌘K
-          </button>
-          <button
-            type="button"
-            className="btn btn--icon"
-            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-            aria-pressed={theme === "light"}
-            title={`Theme: ${theme} (click to switch)`}
-            onClick={toggleTheme}
-          >
-            {theme === "dark" ? "☾" : "☀"}
-          </button>
-          <button
-            type="button"
-            className="btn btn--icon"
-            aria-label={`Switch to ${density === "comfortable" ? "compact" : "comfortable"} density`}
-            aria-pressed={density === "compact"}
-            title={`Density: ${density} (click to switch)`}
-            onClick={toggleDensity}
-          >
-            {density === "comfortable" ? "▤" : "▦"}
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label="Open command palette"
+                onClick={() => setPaletteOpen(true)}
+              >
+                <CommandIcon className="size-4" />
+                <kbd className="font-mono text-xs">K</kbd>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Command palette (Ctrl/Cmd+K)</TooltipContent>
+          </Tooltip>
 
-          <button
-            type="button"
-            className="btn"
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
+                aria-pressed={theme === "light"}
+                onClick={toggleTheme}
+              >
+                {theme === "dark" ? <Moon className="size-4" /> : <Sun className="size-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Theme: {theme}</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon-sm"
+                aria-label={`Switch to ${density === "comfortable" ? "compact" : "comfortable"} density`}
+                aria-pressed={density === "compact"}
+                onClick={toggleDensity}
+              >
+                {density === "comfortable" ? (
+                  <LayoutGrid className="size-4" />
+                ) : (
+                  <Rows3 className="size-4" />
+                )}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Density: {density}</TooltipContent>
+          </Tooltip>
+
+          <Separator orientation="vertical" className="mx-1 h-6" />
+
+          <Button
+            variant="outline"
+            size="sm"
             onClick={() => setShowSaveDialog(true)}
             disabled={globalBusy}
           >
-            Save current as workspace…
-          </button>
-          <button type="button" className="btn" onClick={handleSnapshot} disabled={globalBusy}>
-            Snapshot now
-          </button>
-          <button type="button" className="btn btn--primary" onClick={manualRefresh} disabled={loading}>
+            <Save className="size-4" />
+            Save workspace
+          </Button>
+          <Button variant="outline" size="sm" onClick={handleSnapshot} disabled={globalBusy}>
+            <Camera className="size-4" />
+            Snapshot
+          </Button>
+          <Button size="sm" onClick={manualRefresh} disabled={loading}>
+            <RefreshCw className={cn("size-4", loading && "animate-spin")} />
             Refresh
-          </button>
+          </Button>
         </div>
       </header>
 
-      <nav className="tabs" role="tablist" aria-label="Session view">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={primaryView === "sessions" && filter === "open"}
-          className={`tab${primaryView === "sessions" && filter === "open" ? " tab--on" : ""}`}
+      <nav className="flex items-center gap-1 border-b border-border px-4" role="tablist" aria-label="Session view">
+        <NavTab
+          active={primaryView === "sessions" && filter === "open"}
           onClick={() => selectSessionsTab("open")}
         >
-          <span className="tab__dot" aria-hidden="true" />
+          <span className="size-1.5 rounded-full bg-live" aria-hidden="true" />
           Open
-          <span className="tab__count tab__count--accent">{data.openCount}</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={primaryView === "sessions" && filter === "live"}
-          className={`tab${primaryView === "sessions" && filter === "live" ? " tab--on" : ""}`}
+          <Badge variant="secondary" className="ml-1 bg-primary/15 text-primary">
+            {data.openCount}
+          </Badge>
+        </NavTab>
+        <NavTab
+          active={primaryView === "sessions" && filter === "live"}
           onClick={() => selectSessionsTab("live")}
         >
           Live
-          <span className="tab__count">{data.live.length}</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={primaryView === "sessions" && filter === "all"}
-          className={`tab${primaryView === "sessions" && filter === "all" ? " tab--on" : ""}`}
+          <Badge variant="secondary" className="ml-1">{data.live.length}</Badge>
+        </NavTab>
+        <NavTab
+          active={primaryView === "sessions" && filter === "all"}
           onClick={() => selectSessionsTab("all")}
         >
           All
-          <span className="tab__count">{data.all.length}</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={primaryView === "graph"}
-          className={`tab${primaryView === "graph" ? " tab--on" : ""}`}
-          onClick={() => setPrimaryView("graph")}
-        >
+          <Badge variant="secondary" className="ml-1">{data.all.length}</Badge>
+        </NavTab>
+        <NavTab active={primaryView === "graph"} onClick={() => setPrimaryView("graph")}>
           Graph
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={primaryView === "memory"}
-          className={`tab${primaryView === "memory" ? " tab--on" : ""}`}
-          onClick={() => setPrimaryView("memory")}
-        >
+        </NavTab>
+        <NavTab active={primaryView === "memory"} onClick={() => setPrimaryView("memory")}>
           Memory
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={primaryView === "insights"}
-          className={`tab${primaryView === "insights" ? " tab--on" : ""}`}
-          onClick={() => setPrimaryView("insights")}
-        >
+        </NavTab>
+        <NavTab active={primaryView === "insights"} onClick={() => setPrimaryView("insights")}>
           Insights
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={primaryView === "settings"}
-          className={`tab${primaryView === "settings" ? " tab--on" : ""}`}
-          onClick={() => setPrimaryView("settings")}
-        >
+        </NavTab>
+        <NavTab active={primaryView === "settings"} onClick={() => setPrimaryView("settings")}>
           Settings
-        </button>
+        </NavTab>
       </nav>
 
-      {error && primaryView === "sessions" && (
-        <div className="banner banner--error" role="alert">
-          <span>{error}</span>
-          <button type="button" className="btn btn--ghost" onClick={manualRefresh}>
-            Retry
-          </button>
-        </div>
-      )}
+      <div className="flex min-h-0 flex-1">
+        <main className="min-w-0 flex-1 overflow-y-auto">
+          {error && primaryView === "sessions" && (
+            <div
+              className="m-6 flex items-center justify-between gap-4 rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+              role="alert"
+            >
+              <span className="flex items-center gap-2">
+                <TriangleAlert className="size-4 shrink-0" />
+                {error}
+              </span>
+              <Button variant="outline" size="sm" onClick={manualRefresh}>
+                Retry
+              </Button>
+            </div>
+          )}
 
-      {primaryView === "graph" ? (
-        <main className="content content--graph">
-          <GraphView
-            initialFilter={filter}
-            windowTarget={windowTarget}
-            push={push}
-            onShowRelated={showRelatedMemory}
-            onOpenSession={openDrawer}
-          />
-        </main>
-      ) : primaryView === "memory" ? (
-        <main className="content content--memory">
-          <MemoryPanel
-            windowTarget={windowTarget}
-            push={push}
-            relatedSeed={relatedSeed}
-            onClearRelated={() => setRelatedSeed(null)}
-          />
-        </main>
-      ) : primaryView === "insights" ? (
-        <main className="content content--single">
-          <InsightsView push={push} />
-        </main>
-      ) : primaryView === "settings" ? (
-        <main className="content content--single">
-          <SettingsView push={push} onSaved={setConfig} />
-        </main>
-      ) : (
-        <main className="content">
-        <section className="panel">
-          <div className="panel__head">
-            <h2>
-              {filter === "open" ? "Open terminals" : filter === "live" ? "Live sessions" : "All sessions"}{" "}
-              <span className="count">{visibleSessions.length}</span>
-            </h2>
-            {hiddenCount > 0 && (
-              <label className="check">
-                <input
-                  type="checkbox"
-                  checked={showHidden}
-                  onChange={(e) => setShowHidden(e.target.checked)}
-                />
-                Show hidden ({hiddenCount})
-              </label>
-            )}
-          </div>
-
-          <Toolbar
-            search={searchInput}
-            onSearch={setSearchInput}
-            sort={sort}
-            onSort={setSort}
-            grouping={grouping}
-            onGrouping={setGrouping}
-            quickFilters={quickFilters}
-            onToggleQuick={toggleQuick}
-            searchRef={searchRef}
-            tags={availableTags}
-            tagFilter={tagFilter}
-            onTagFilter={setTagFilter}
-            showArchived={showArchived}
-            onShowArchived={setShowArchived}
-            archivedCount={archivedCount}
-          />
-
-          {loading ? (
-            <SkeletonGrid />
-          ) : isEmpty ? (
-            <EmptyState
-              filter={filter}
-              filtersActive={filtersActive}
-              onClear={() => {
-                setSearchInput("");
-                setQuickFilters([]);
-              }}
-              onRefresh={manualRefresh}
-            />
-          ) : grouping === "by-repo" ? (
-            <div className="groups">
-              {groups.map((g) => {
-                const collapsed = collapsedGroups.includes(g.key);
-                return (
-                  <section className="group" key={g.key}>
-                    <header className="group__head">
-                      <button
-                        type="button"
-                        className="group__toggle"
-                        aria-expanded={!collapsed}
-                        onClick={() => toggleGroup(g.key)}
-                      >
-                        <span
-                          className={`disclosure__caret${collapsed ? "" : " disclosure__caret--open"}`}
-                          aria-hidden="true"
-                        >
-                          ▸
-                        </span>
-                        <span className="group__name" title={g.label}>{g.label}</span>
-                        <span className="count">{g.sessions.length}</span>
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn--ghost group__resume-all"
-                        disabled={globalBusy}
-                        onClick={() => handleResumeGroup(g.label, g.sessions.map((s) => s.id))}
-                      >
-                        Resume all
-                      </button>
-                    </header>
-                    {!collapsed && <div className={`grid grid--${density}`}>{g.sessions.map(renderCard)}</div>}
-                  </section>
-                );
-              })}
+          {primaryView === "graph" ? (
+            <div className="h-full">
+              <GraphView
+                initialFilter={filter}
+                windowTarget={windowTarget}
+                push={push}
+                onShowRelated={showRelatedMemory}
+                onOpenSession={openDrawer}
+              />
+            </div>
+          ) : primaryView === "memory" ? (
+            <div className="p-6">
+              <MemoryPanel
+                windowTarget={windowTarget}
+                push={push}
+                relatedSeed={relatedSeed}
+                onClearRelated={() => setRelatedSeed(null)}
+              />
+            </div>
+          ) : primaryView === "insights" ? (
+            <div className="p-6">
+              <InsightsView push={push} />
+            </div>
+          ) : primaryView === "settings" ? (
+            <div className="p-6">
+              <SettingsView push={push} onSaved={setConfig} />
             </div>
           ) : (
-            <div className={`grid grid--${density}`}>{visibleSessions.map(renderCard)}</div>
-          )}
-        </section>
+            <div className="space-y-8 p-6">
+              <section className="space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="flex items-center gap-2 text-base font-semibold">
+                    {filter === "open"
+                      ? "Open terminals"
+                      : filter === "live"
+                        ? "Live sessions"
+                        : "All sessions"}
+                    <Badge variant="secondary">{visibleSessions.length}</Badge>
+                  </h2>
+                  {hiddenCount > 0 && (
+                    <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Switch checked={showHidden} onCheckedChange={setShowHidden} />
+                      Show hidden ({hiddenCount})
+                    </label>
+                  )}
+                </div>
 
-        <section className="panel">
-          <div className="panel__head">
-            <h2>
-              Workspaces <span className="count">{workspaces.length}</span>
-            </h2>
-            <div className="panel__head-actions">
-              <button
-                type="button"
-                className="btn btn--ghost"
-                disabled={globalBusy || workspaces.length === 0}
-                onClick={() => void handleExportWorkspaces()}
-              >
-                Export…
-              </button>
-              <button
-                type="button"
-                className="btn btn--ghost"
-                disabled={globalBusy}
-                onClick={() => setShowImportDialog(true)}
-              >
-                Import…
-              </button>
+                <Toolbar
+                  search={searchInput}
+                  onSearch={setSearchInput}
+                  sort={sort}
+                  onSort={setSort}
+                  grouping={grouping}
+                  onGrouping={setGrouping}
+                  quickFilters={quickFilters}
+                  onToggleQuick={toggleQuick}
+                  searchRef={searchRef}
+                  tags={availableTags}
+                  tagFilter={tagFilter}
+                  onTagFilter={setTagFilter}
+                  showArchived={showArchived}
+                  onShowArchived={setShowArchived}
+                  archivedCount={archivedCount}
+                />
+
+                {loading ? (
+                  <SkeletonGrid />
+                ) : isEmpty ? (
+                  <EmptyState
+                    filter={filter}
+                    filtersActive={filtersActive}
+                    onClear={() => {
+                      setSearchInput("");
+                      setQuickFilters([]);
+                    }}
+                    onRefresh={manualRefresh}
+                  />
+                ) : grouping === "by-repo" ? (
+                  <div className="space-y-6">
+                    {groups.map((g) => {
+                      const collapsed = collapsedGroups.includes(g.key);
+                      return (
+                        <section className="space-y-3" key={g.key}>
+                          <header className="flex items-center justify-between gap-2">
+                            <button
+                              type="button"
+                              className="flex min-w-0 items-center gap-2 rounded-md px-1 py-0.5 text-sm hover:text-primary"
+                              aria-expanded={!collapsed}
+                              onClick={() => toggleGroup(g.key)}
+                            >
+                              <ChevronRight
+                                className={cn(
+                                  "size-4 shrink-0 transition-transform",
+                                  !collapsed && "rotate-90",
+                                )}
+                                aria-hidden="true"
+                              />
+                              <span className="truncate font-medium" title={g.label}>
+                                {g.label}
+                              </span>
+                              <Badge variant="secondary">{g.sessions.length}</Badge>
+                            </button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={globalBusy}
+                              onClick={() => handleResumeGroup(g.label, g.sessions.map((s) => s.id))}
+                            >
+                              Resume all
+                            </Button>
+                          </header>
+                          {!collapsed && (
+                            <div className={gridClass}>{g.sessions.map(renderCard)}</div>
+                          )}
+                        </section>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className={gridClass}>{visibleSessions.map(renderCard)}</div>
+                )}
+              </section>
+
+              <Separator />
+
+              <section className="space-y-4">
+                <div className="flex items-center justify-between gap-4">
+                  <h2 className="flex items-center gap-2 text-base font-semibold">
+                    Workspaces
+                    <Badge variant="secondary">{workspaces.length}</Badge>
+                  </h2>
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={globalBusy || workspaces.length === 0}
+                      onClick={() => void handleExportWorkspaces()}
+                    >
+                      <Download className="size-4" />
+                      Export
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={globalBusy}
+                      onClick={() => setShowImportDialog(true)}
+                    >
+                      <Upload className="size-4" />
+                      Import
+                    </Button>
+                  </div>
+                </div>
+                <WorkspacePanel
+                  workspaces={workspaces}
+                  busy={globalBusy}
+                  onRestore={handleRestore}
+                  onDelete={handleDelete}
+                />
+              </section>
+
+              <SnapshotTimeline
+                windowTarget={windowTarget}
+                busy={globalBusy}
+                push={push}
+                onRestore={handleRestore}
+                onPromoted={() => loadAll().catch(() => undefined)}
+              />
             </div>
-          </div>
-          <WorkspacePanel
-            workspaces={workspaces}
-            busy={globalBusy}
-            onRestore={handleRestore}
-            onDelete={handleDelete}
-          />
-        </section>
+          )}
+        </main>
 
-        <SnapshotTimeline
-          windowTarget={windowTarget}
-          busy={globalBusy}
-          push={push}
-          onRestore={handleRestore}
-          onPromoted={() => loadAll().catch(() => undefined)}
-        />
-      </main>
-      )}
+        {drawerId && (
+          <SessionDrawer
+            id={drawerId}
+            windowTarget={windowTarget}
+            push={push}
+            onClose={() => setDrawerId(null)}
+            onOpen={openDrawer}
+            onResume={handleResume}
+            onPatch={handlePatch}
+            onShowRelated={(sessionId, label) => {
+              setDrawerId(null);
+              showRelatedMemory(sessionId, label);
+            }}
+            onReload={() => loadAll().catch(() => undefined)}
+          />
+        )}
+      </div>
 
       {showImportDialog && (
         <ImportWorkspacesDialog
@@ -1007,23 +1094,6 @@ export function App() {
           busy={globalBusy}
           onCancel={() => setShowSaveDialog(false)}
           onSave={handleCreateWorkspace}
-        />
-      )}
-
-      {drawerId && (
-        <SessionDrawer
-          id={drawerId}
-          windowTarget={windowTarget}
-          push={push}
-          onClose={() => setDrawerId(null)}
-          onOpen={openDrawer}
-          onResume={handleResume}
-          onPatch={handlePatch}
-          onShowRelated={(sessionId, label) => {
-            setDrawerId(null);
-            showRelatedMemory(sessionId, label);
-          }}
-          onReload={() => loadAll().catch(() => undefined)}
         />
       )}
 
@@ -1056,6 +1126,32 @@ export function App() {
 
       <ToastStack toasts={toasts} onDismiss={dismiss} />
     </div>
+    </TooltipProvider>
+  );
+}
+
+interface NavTabProps {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}
+
+function NavTab({ active, onClick, children }: NavTabProps) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      className={cn(
+        "-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors",
+        active
+          ? "border-primary text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground",
+      )}
+      onClick={onClick}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -1069,25 +1165,26 @@ interface EmptyStateProps {
 function EmptyState({ filter, filtersActive, onClear, onRefresh }: EmptyStateProps) {
   if (filtersActive) {
     return (
-      <div className="empty empty--cta">
-        <p className="empty__title">No sessions match your filters</p>
-        <p className="empty__sub">Try a different search or clear the active filters.</p>
-        <button type="button" className="btn btn--primary" onClick={onClear}>
-          Clear filters
-        </button>
+      <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border py-16 text-center">
+        <p className="text-sm font-semibold">No sessions match your filters</p>
+        <p className="text-sm text-muted-foreground">
+          Try a different search or clear the active filters.
+        </p>
+        <Button onClick={onClear}>Clear filters</Button>
       </div>
     );
   }
   const noun = filter === "open" ? "open terminals" : filter === "live" ? "live sessions" : "sessions";
   return (
-    <div className="empty empty--cta">
-      <p className="empty__title">No {noun} found</p>
-      <p className="empty__sub">
+    <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border py-16 text-center">
+      <p className="text-sm font-semibold">No {noun} found</p>
+      <p className="text-sm text-muted-foreground">
         Start a Copilot session in a terminal, or check again in a moment.
       </p>
-      <button type="button" className="btn btn--primary" onClick={onRefresh}>
+      <Button onClick={onRefresh}>
+        <RefreshCw className="size-4" />
         Refresh
-      </button>
+      </Button>
     </div>
   );
 }
@@ -1118,71 +1215,69 @@ function SaveWorkspaceDialog({ defaultFilter, busy, onCancel, onSave }: SaveDial
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onCancel}>
-      <form
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Save current as workspace"
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={submit}
-      >
-        <h3 className="modal__title">Save current as workspace</h3>
+    <Dialog open onOpenChange={(o) => { if (!o) onCancel(); }}>
+      <DialogContent>
+        <form onSubmit={submit} className="space-y-4">
+          <DialogHeader>
+            <DialogTitle>Save current as workspace</DialogTitle>
+          </DialogHeader>
 
-        <label className="field field--block">
-          <span className="field__label">Name</span>
-          <input
-            className="input"
-            value={name}
-            autoFocus
-            placeholder="morning-layout"
-            onChange={(e) => setName(e.target.value)}
-          />
-        </label>
+          <div className="space-y-1.5">
+            <Label htmlFor="ws-name">Name</Label>
+            <Input
+              id="ws-name"
+              value={name}
+              autoFocus
+              placeholder="morning-layout"
+              onChange={(e) => setName(e.target.value)}
+            />
+          </div>
 
-        <label className="field field--block">
-          <span className="field__label">Description (optional)</span>
-          <input
-            className="input"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
-        </label>
+          <div className="space-y-1.5">
+            <Label htmlFor="ws-desc">Description (optional)</Label>
+            <Input
+              id="ws-desc"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
+          </div>
 
-        <label className="check">
-          <input
-            type="checkbox"
-            checked={fromLive}
-            onChange={(e) => setFromLive(e.target.checked)}
-          />
-          Capture the current open layout
-        </label>
-
-        {fromLive && (
-          <label className="field field--block">
-            <span className="field__label">Capture filter</span>
-            <select
-              className="select"
-              value={captureFilter}
-              onChange={(e) => setCaptureFilter(e.target.value as SessionFilter)}
-            >
-              <option value="open">Open terminals</option>
-              <option value="live">Live sessions</option>
-              <option value="all">All sessions</option>
-            </select>
+          <label className="flex items-center gap-2 text-sm">
+            <Switch checked={fromLive} onCheckedChange={setFromLive} />
+            Capture the current open layout
           </label>
-        )}
 
-        <div className="modal__actions">
-          <button type="button" className="btn btn--ghost" onClick={onCancel} disabled={busy}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn--primary" disabled={busy || !name.trim()}>
-            Save workspace
-          </button>
-        </div>
-      </form>
-    </div>
+          {fromLive && (
+            <div className="space-y-1.5">
+              <Label>Capture filter</Label>
+              <Select
+                value={captureFilter}
+                onValueChange={(v) => setCaptureFilter(v as SessionFilter)}
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="open">Open terminals</SelectItem>
+                  <SelectItem value="live">Live sessions</SelectItem>
+                  <SelectItem value="all">All sessions</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy || !name.trim()}>
+              <Save className="size-4" />
+              Save workspace
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1211,44 +1306,45 @@ function ImportWorkspacesDialog({ busy, onCancel, onImport }: ImportDialogProps)
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onCancel}>
-      <form
-        className="modal"
-        role="dialog"
-        aria-modal="true"
-        aria-label="Import workspaces"
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={submit}
-      >
-        <h3 className="modal__title">Import workspaces</h3>
+    <Dialog open onOpenChange={(o) => { if (!o) onCancel(); }}>
+      <DialogContent>
+        <form onSubmit={submit} className="space-y-4">
+          <DialogHeader>
+            <DialogTitle>Import workspaces</DialogTitle>
+          </DialogHeader>
 
-        <label className="field field--block">
-          <span className="field__label">Choose a JSON file</span>
-          <input className="input" type="file" accept="application/json,.json" onChange={onFile} />
-        </label>
+          <div className="space-y-1.5">
+            <Label htmlFor="ws-file">Choose a JSON file</Label>
+            <Input id="ws-file" type="file" accept="application/json,.json" onChange={onFile} />
+          </div>
 
-        <label className="field field--block">
-          <span className="field__label">…or paste exported JSON</span>
-          <textarea
-            className="input"
-            rows={6}
-            value={json}
-            placeholder='{"workspaces":[…]}'
-            onChange={(e) => setJson(e.target.value)}
-          />
-        </label>
+          <div className="space-y-1.5">
+            <Label htmlFor="ws-json">…or paste exported JSON</Label>
+            <textarea
+              id="ws-json"
+              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 font-mono text-xs shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              rows={6}
+              value={json}
+              placeholder='{"workspaces":[…]}'
+              onChange={(e) => setJson(e.target.value)}
+            />
+          </div>
 
-        <p className="modal__hint">Imported workspaces are assigned fresh ids and won’t overwrite existing ones.</p>
+          <p className="text-xs text-muted-foreground">
+            Imported workspaces are assigned fresh ids and won’t overwrite existing ones.
+          </p>
 
-        <div className="modal__actions">
-          <button type="button" className="btn btn--ghost" onClick={onCancel} disabled={busy}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn--primary" disabled={busy || !json.trim()}>
-            Import
-          </button>
-        </div>
-      </form>
-    </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onCancel} disabled={busy}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={busy || !json.trim()}>
+              <Upload className="size-4" />
+              Import
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { CSSProperties, FormEvent } from "react";
 import {
   Background,
   Controls,
@@ -12,12 +12,26 @@ import {
 } from "@xyflow/react";
 import type { Edge, Node, NodeTypes } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import { ArrowDown, ArrowRight, Plus, RefreshCw } from "lucide-react";
 import type { GraphModel, GraphNode, WindowTarget } from "../../core/types";
 import type { SessionFilter } from "../api/client";
 import * as api from "../api/client";
 import { layoutGraph, type FlowEdge, type LayoutDirection } from "../lib/graphLayout";
 import { toCssColor } from "../lib/colors";
 import { NodeActionsContext, SessionNode, type NodeActions } from "./SessionNode";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 
 /** Above this many nodes we cap the canvas to stay responsive. */
 const MAX_NODES = 150;
@@ -29,6 +43,21 @@ const EDGE_LEGEND: { kind: FlowEdge["data"]["kind"]; label: string }[] = [
   { kind: "terminal", label: "Same terminal" },
   { kind: "repo", label: "Same repo" },
 ];
+
+const LEGEND_LINE: Record<FlowEdge["data"]["kind"], CSSProperties> = {
+  fork: { backgroundColor: "#4f8cff" },
+  terminal: {
+    backgroundImage: "linear-gradient(to right, #9aa7ba 60%, transparent 0)",
+    backgroundSize: "8px 100%",
+  },
+  repo: { backgroundColor: "#313c4f" },
+};
+
+const FILTER_LABEL: Record<SessionFilter, string> = {
+  open: "Open",
+  live: "Live",
+  all: "All",
+};
 
 function edgeStyle(kind: FlowEdge["data"]["kind"]): Partial<Edge> {
   if (kind === "fork") {
@@ -225,71 +254,99 @@ function GraphCanvas({ initialFilter, windowTarget, push, onShowRelated, onOpenS
   );
 
   return (
-    <section className="panel graphpanel">
-      <div className="graphbar">
-        <div className="seg" role="group" aria-label="Graph filter">
+    <section className="flex min-h-0 flex-1 flex-col">
+      <div className="mb-3.5 flex flex-wrap items-center gap-3">
+        <div
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-card p-1"
+          role="group"
+          aria-label="Graph filter"
+        >
           {(["open", "live", "all"] as SessionFilter[]).map((f) => (
-            <button
+            <Button
               key={f}
               type="button"
-              className={`seg__btn${filter === f ? " seg__btn--on" : ""}`}
+              variant={filter === f ? "secondary" : "ghost"}
+              size="xs"
               onClick={() => setFilter(f)}
             >
-              {f === "open" ? "Open" : f === "live" ? "Live" : "All"}
-            </button>
+              {FILTER_LABEL[f]}
+            </Button>
           ))}
         </div>
 
-        <div className="seg" role="group" aria-label="Layout direction">
-          <button
+        <div
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-card p-1"
+          role="group"
+          aria-label="Layout direction"
+        >
+          <Button
             type="button"
-            className={`seg__btn${direction === "TB" ? " seg__btn--on" : ""}`}
+            variant={direction === "TB" ? "secondary" : "ghost"}
+            size="xs"
             onClick={() => setDirection("TB")}
             title="Top-down layout"
           >
-            ↧ TB
-          </button>
-          <button
+            <ArrowDown />
+            TB
+          </Button>
+          <Button
             type="button"
-            className={`seg__btn${direction === "LR" ? " seg__btn--on" : ""}`}
+            variant={direction === "LR" ? "secondary" : "ghost"}
+            size="xs"
             onClick={() => setDirection("LR")}
             title="Left-right layout"
           >
-            ↦ LR
-          </button>
+            <ArrowRight />
+            LR
+          </Button>
         </div>
 
-        <div className="graphbar__spacer" />
+        <div className="flex-1" />
 
-        <button type="button" className="btn btn--primary" onClick={() => setShowNew(true)}>
-          ＋ New session
-        </button>
-        <button type="button" className="btn" onClick={() => void load()} disabled={loading}>
+        <Button type="button" size="sm" onClick={() => setShowNew(true)}>
+          <Plus />
+          New session
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => void load()}
+          disabled={loading}
+        >
+          <RefreshCw className={cn(loading && "animate-spin")} />
           Refresh
-        </button>
+        </Button>
       </div>
 
       {capped && (
-        <div className="banner banner--warn" role="status">
+        <div
+          className="mb-3.5 rounded-md border border-stale/40 bg-stale/10 px-3 py-2 text-xs text-stale"
+          role="status"
+        >
           Showing the first {MAX_NODES} sessions. Narrow the filter to see the rest.
         </div>
       )}
 
-      <div className="graphcanvas">
+      <div className="relative h-[calc(100vh-230px)] min-h-[420px] overflow-hidden rounded-xl border border-border bg-card">
         {error ? (
-          <div className="empty empty--cta">
-            <p className="empty__title">Graph unavailable</p>
-            <p className="empty__sub">{error}</p>
-            <button type="button" className="btn btn--primary" onClick={() => void load()}>
+          <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+            <p className="text-sm font-semibold">Graph unavailable</p>
+            <p className="text-xs text-muted-foreground">{error}</p>
+            <Button type="button" onClick={() => void load()}>
               Retry
-            </button>
+            </Button>
           </div>
         ) : loading && !model ? (
-          <div className="graphcanvas__loading">Loading graph…</div>
+          <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+            Loading graph…
+          </div>
         ) : model && model.nodes.length === 0 ? (
-          <div className="empty empty--cta">
-            <p className="empty__title">No sessions to graph</p>
-            <p className="empty__sub">Try the “All” filter or start a Copilot session.</p>
+          <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
+            <p className="text-sm font-semibold">No sessions to graph</p>
+            <p className="text-xs text-muted-foreground">
+              Try the “All” filter or start a Copilot session.
+            </p>
           </div>
         ) : (
           <NodeActionsContext.Provider value={actions}>
@@ -324,10 +381,13 @@ function GraphCanvas({ initialFilter, windowTarget, push, onShowRelated, onOpenS
           </NodeActionsContext.Provider>
         )}
 
-        <div className="graphlegend" aria-hidden="true">
+        <div
+          className="pointer-events-none absolute bottom-3 right-3 flex flex-wrap items-center gap-3 rounded-md border border-border bg-popover/90 px-3 py-2 text-xs text-muted-foreground backdrop-blur"
+          aria-hidden="true"
+        >
           {EDGE_LEGEND.map((l) => (
-            <span key={l.kind} className="graphlegend__item">
-              <span className={`graphlegend__line graphlegend__line--${l.kind}`} />
+            <span key={l.kind} className="flex items-center gap-1.5">
+              <span className="h-0.5 w-5 rounded-full" style={LEGEND_LINE[l.kind]} />
               {l.label}
             </span>
           ))}
@@ -379,67 +439,67 @@ function NewSessionDialog({ windowTarget, onCancel, onSubmit }: NewSessionDialog
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onCancel}>
-      <form
-        className="modal"
-        role="dialog"
-        aria-modal="true"
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent
         aria-label="New session"
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={submit}
+        onOpenAutoFocus={(e) => e.preventDefault()}
       >
-        <h3 className="modal__title">New session</h3>
+        <form className="grid gap-4" onSubmit={submit}>
+          <DialogHeader>
+            <DialogTitle>New session</DialogTitle>
+          </DialogHeader>
 
-        <label className="field field--block">
-          <span className="field__label">Title</span>
-          <input
-            className="input"
-            value={title}
-            autoFocus
-            placeholder="api refactor"
-            onChange={(e) => setTitle(e.target.value)}
-          />
-        </label>
+          <div className="grid gap-2">
+            <Label htmlFor="new-title">Title</Label>
+            <Input
+              id="new-title"
+              value={title}
+              autoFocus
+              placeholder="api refactor"
+              onChange={(e) => setTitle(e.target.value)}
+            />
+          </div>
 
-        <label className="field field--block">
-          <span className="field__label">Working directory</span>
-          <input
-            className="input"
-            value={cwd}
-            placeholder="C:\\work\\repo"
-            onChange={(e) => setCwd(e.target.value)}
-          />
-        </label>
+          <div className="grid gap-2">
+            <Label htmlFor="new-cwd">Working directory</Label>
+            <Input
+              id="new-cwd"
+              value={cwd}
+              placeholder="C:\\work\\repo"
+              onChange={(e) => setCwd(e.target.value)}
+            />
+          </div>
 
-        <label className="field field--block">
-          <span className="field__label">Color (optional)</span>
-          <input
-            className="input"
-            value={color}
-            placeholder="#4f8cff or blue"
-            onChange={(e) => setColor(e.target.value)}
-          />
-        </label>
+          <div className="grid gap-2">
+            <Label htmlFor="new-color">Color (optional)</Label>
+            <Input
+              id="new-color"
+              value={color}
+              placeholder="#4f8cff or blue"
+              onChange={(e) => setColor(e.target.value)}
+            />
+          </div>
 
-        <label className="field field--block">
-          <span className="field__label">Starting prompt (optional)</span>
-          <input
-            className="input"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-          />
-        </label>
+          <div className="grid gap-2">
+            <Label htmlFor="new-prompt">Starting prompt (optional)</Label>
+            <Input
+              id="new-prompt"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+            />
+          </div>
 
-        <div className="modal__actions">
-          <button type="button" className="btn btn--ghost" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn--primary" disabled={!title.trim() || !cwd.trim()}>
-            Create session
-          </button>
-        </div>
-      </form>
-    </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!title.trim() || !cwd.trim()}>
+              Create session
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -459,43 +519,46 @@ function ForkDialog({ node, onCancel, onSubmit }: ForkDialogProps) {
   }
 
   return (
-    <div className="modal-backdrop" role="presentation" onClick={onCancel}>
-      <form
-        className="modal"
-        role="dialog"
-        aria-modal="true"
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent
         aria-label="Fork session"
-        onClick={(e) => e.stopPropagation()}
-        onSubmit={submit}
+        onOpenAutoFocus={(e) => e.preventDefault()}
       >
-        <h3 className="modal__title">Fork “{node.label}”</h3>
-        <p className="modal__hint">Creates a branched session from this one.</p>
+        <form className="grid gap-4" onSubmit={submit}>
+          <DialogHeader>
+            <DialogTitle>Fork “{node.label}”</DialogTitle>
+            <DialogDescription>
+              Creates a branched session from this one.
+            </DialogDescription>
+          </DialogHeader>
 
-        <label className="field field--block">
-          <span className="field__label">Lineage note (optional)</span>
-          <input
-            className="input"
-            value={note}
-            autoFocus
-            placeholder="try the alternate approach"
-            onChange={(e) => setNote(e.target.value)}
-          />
-        </label>
+          <div className="grid gap-2">
+            <Label htmlFor="fork-note">Lineage note (optional)</Label>
+            <Input
+              id="fork-note"
+              value={note}
+              autoFocus
+              placeholder="try the alternate approach"
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </div>
 
-        <label className="check">
-          <input type="checkbox" checked={launch} onChange={(e) => setLaunch(e.target.checked)} />
-          Open a terminal tab for the fork
-        </label>
+          <Label className="font-normal">
+            <Checkbox
+              checked={launch}
+              onCheckedChange={(checked) => setLaunch(checked === true)}
+            />
+            Open a terminal tab for the fork
+          </Label>
 
-        <div className="modal__actions">
-          <button type="button" className="btn btn--ghost" onClick={onCancel}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn--primary">
-            Create fork
-          </button>
-        </div>
-      </form>
-    </div>
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button type="submit">Create fork</Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -1,5 +1,16 @@
 import type { RefObject } from "react";
+import { Archive, LayoutGrid, Rows3, Search } from "lucide-react";
 import type { QuickFilter, SortKey } from "../lib/sessions";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 export type Grouping = "flat" | "by-repo";
 
@@ -37,6 +48,8 @@ const QUICK_CHIPS: { key: QuickFilter; label: string }[] = [
   { key: "has-children", label: "Has children" },
 ];
 
+const ALL_TAGS = "__all__";
+
 /** Client-side controls: debounced search, sort, repo grouping, and quick chips. */
 export function Toolbar({
   search,
@@ -56,92 +69,114 @@ export function Toolbar({
   archivedCount,
 }: ToolbarProps) {
   return (
-    <div className="toolbar">
-      <div className="toolbar__search">
-        <span className="toolbar__search-icon" aria-hidden="true">⌕</span>
-        <input
+    <div className="flex flex-wrap items-center gap-2">
+      <div className="relative min-w-56 flex-1">
+        <Search
+          className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+          aria-hidden="true"
+        />
+        <Input
           ref={searchRef}
-          className="input toolbar__search-input"
           type="search"
           value={search}
+          className="pl-9"
           placeholder="Search title, repo, branch, cwd…  ( / )"
           aria-label="Search sessions"
           onChange={(e) => onSearch(e.target.value)}
         />
       </div>
 
-      <label className="field">
-        <span className="field__label">Sort</span>
-        <select className="select" value={sort} onChange={(e) => onSort(e.target.value as SortKey)}>
-          {SORT_OPTIONS.map((o) => (
-            <option key={o.key} value={o.key}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </label>
-
-      <div className="seg" role="group" aria-label="Grouping">
-        <button
-          type="button"
-          className={`seg__btn${grouping === "flat" ? " seg__btn--on" : ""}`}
-          onClick={() => onGrouping("flat")}
-        >
-          Flat
-        </button>
-        <button
-          type="button"
-          className={`seg__btn${grouping === "by-repo" ? " seg__btn--on" : ""}`}
-          onClick={() => onGrouping("by-repo")}
-        >
-          By repo
-        </button>
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground">Sort</span>
+        <Select value={sort} onValueChange={(value) => onSort(value as SortKey)}>
+          <SelectTrigger size="sm" className="w-40" aria-label="Sort sessions">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORT_OPTIONS.map((o) => (
+              <SelectItem key={o.key} value={o.key}>
+                {o.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
-      <div className="chips" role="group" aria-label="Quick filters">
+      <div className="flex items-center gap-1" role="group" aria-label="Grouping">
+        <Button
+          type="button"
+          size="sm"
+          variant={grouping === "flat" ? "default" : "outline"}
+          aria-pressed={grouping === "flat"}
+          onClick={() => onGrouping("flat")}
+        >
+          <Rows3 />
+          Flat
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          variant={grouping === "by-repo" ? "default" : "outline"}
+          aria-pressed={grouping === "by-repo"}
+          onClick={() => onGrouping("by-repo")}
+        >
+          <LayoutGrid />
+          By repo
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-1" role="group" aria-label="Quick filters">
         {QUICK_CHIPS.map((chip) => {
           const on = quickFilters.includes(chip.key);
           return (
-            <button
+            <Button
               key={chip.key}
               type="button"
-              className={`chip${on ? " chip--on" : ""}`}
+              size="sm"
+              variant={on ? "default" : "outline"}
               aria-pressed={on}
               onClick={() => onToggleQuick(chip.key)}
             >
               {chip.label}
-            </button>
+            </Button>
           );
         })}
       </div>
 
       {tags.length > 0 && (
-        <label className="field">
-          <span className="field__label">Tag</span>
-          <select
-            className="select"
-            value={tagFilter ?? ""}
-            onChange={(e) => onTagFilter(e.target.value || null)}
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground">Tag</span>
+          <Select
+            value={tagFilter ?? ALL_TAGS}
+            onValueChange={(value) => onTagFilter(value === ALL_TAGS ? null : value)}
           >
-            <option value="">All tags</option>
-            {tags.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </label>
+            <SelectTrigger size="sm" className="w-36" aria-label="Filter by tag">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_TAGS}>All tags</SelectItem>
+              {tags.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {t}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       )}
 
-      <button
+      <Button
         type="button"
-        className={`chip${showArchived ? " chip--on" : ""}`}
+        size="sm"
+        variant={showArchived ? "default" : "outline"}
         aria-pressed={showArchived}
         title="Toggle archived sessions"
         onClick={() => onShowArchived(!showArchived)}
+        className={cn("ml-auto")}
       >
+        <Archive />
         {showArchived ? "Hide archived" : `Show archived${archivedCount ? ` (${archivedCount})` : ""}`}
-      </button>
+      </Button>
     </div>
   );
 }

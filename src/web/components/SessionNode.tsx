@@ -1,8 +1,18 @@
-import { createContext, useContext, useState } from "react";
+import { createContext, useContext } from "react";
 import type { NodeProps } from "@xyflow/react";
 import { Handle, Position } from "@xyflow/react";
+import { GitBranch, MoreHorizontal, Play, Plus, Sparkles, Users } from "lucide-react";
 import type { GraphNode } from "../../core/types";
 import { toCssColor } from "../lib/colors";
+import { cn } from "@/lib/utils";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 /**
  * Actions a session node can trigger, supplied by the enclosing graph view via
@@ -36,118 +46,101 @@ const LIVENESS_LABEL: Record<GraphNode["liveness"], string> = {
 export function SessionNode(props: NodeProps) {
   const node = props.data as unknown as GraphNode;
   const actions = useContext(NodeActionsContext);
-  const [menuOpen, setMenuOpen] = useState(false);
 
   const color = node.color ? toCssColor(node.color) : "#4f8cff";
   const busy = actions.busyId === node.id;
 
   return (
     <div
-      className={`gnode gnode--${node.liveness}${props.selected ? " gnode--sel" : ""}`}
+      className={cn(
+        "w-60 rounded-xl border border-l-4 border-border bg-card text-card-foreground shadow-sm transition-shadow hover:shadow-md",
+        props.selected && "ring-2 ring-ring",
+      )}
       style={{ borderLeftColor: color }}
-      onMouseLeave={() => setMenuOpen(false)}
     >
       <Handle type="target" position={props.targetPosition ?? Position.Top} />
 
-      <div className="gnode__head">
-        <span
-          className={`gnode__dot gnode__dot--${node.liveness}`}
-          style={{ backgroundColor: color }}
-          aria-hidden="true"
-        />
-        <span className="gnode__label" title={node.label}>
-          {node.label}
-        </span>
-        <button
-          type="button"
-          className="gnode__menu-btn"
-          aria-label="Node actions"
-          aria-expanded={menuOpen}
-          onClick={() => setMenuOpen((v) => !v)}
-        >
-          ⋯
-        </button>
-      </div>
-
-      <div className="gnode__meta">
-        <span className={`gnode__badge gnode__badge--${node.liveness}`}>
-          {LIVENESS_LABEL[node.liveness]}
-        </span>
-        {node.isFork && (
-          <span className="gnode__badge gnode__badge--fork" title="Created via fork">
-            ⑂ fork
+      <div className="flex flex-col gap-2 p-3">
+        <div className="flex items-center gap-2">
+          <span
+            className="size-2.5 shrink-0 rounded-full"
+            style={{ backgroundColor: color }}
+            aria-hidden="true"
+          />
+          <span className="flex-1 truncate text-sm font-semibold" title={node.label}>
+            {node.label}
           </span>
-        )}
-        {node.childCount > 0 && (
-          <span className="gnode__badge gnode__badge--children" title="Co-located child sessions">
-            +{node.childCount}
-          </span>
-        )}
-      </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-xs"
+                className="-mr-1 text-muted-foreground"
+                aria-label="Node actions"
+              >
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem disabled={busy} onSelect={() => actions.onFork(node)}>
+                <GitBranch />
+                Fork…
+              </DropdownMenuItem>
+              <DropdownMenuItem disabled={busy} onSelect={() => actions.onNewChild(node)}>
+                <Plus />
+                New child
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => actions.onRelated(node)}>
+                <Sparkles />
+                Related memory
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
 
-      {(node.repository || node.branch) && (
-        <div className="gnode__repo">
-          {node.repository && (
-            <span className="gnode__repo-name" title={node.repository}>
-              {node.repository}
-            </span>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Badge variant={node.liveness}>{LIVENESS_LABEL[node.liveness]}</Badge>
+          {node.isFork && (
+            <Badge variant="secondary" title="Created via fork">
+              <GitBranch />
+              fork
+            </Badge>
           )}
-          {node.branch && (
-            <span className="gnode__branch" title={`Branch: ${node.branch}`}>
-              ⎇ {node.branch}
-            </span>
+          {node.childCount > 0 && (
+            <Badge variant="outline" title="Co-located child sessions">
+              <Users />
+              {node.childCount}
+            </Badge>
           )}
         </div>
-      )}
 
-      <div className="gnode__actions">
-        <button
+        {(node.repository || node.branch) && (
+          <div className="flex flex-col gap-0.5 font-mono text-xs text-muted-foreground">
+            {node.repository && (
+              <span className="truncate" title={node.repository}>
+                {node.repository}
+              </span>
+            )}
+            {node.branch && (
+              <span className="flex items-center gap-1 truncate" title={`Branch: ${node.branch}`}>
+                <GitBranch className="size-3 shrink-0" />
+                {node.branch}
+              </span>
+            )}
+          </div>
+        )}
+
+        <Button
           type="button"
-          className="gnode__btn gnode__btn--primary"
+          size="sm"
+          className="w-full"
           disabled={busy}
           onClick={() => actions.onResume(node)}
         >
-          ▶ Resume
-        </button>
-        {menuOpen && (
-          <div className="gnode__menu" role="menu">
-            <button
-              type="button"
-              role="menuitem"
-              className="gnode__menu-item"
-              disabled={busy}
-              onClick={() => {
-                setMenuOpen(false);
-                actions.onFork(node);
-              }}
-            >
-              ⑂ Fork…
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="gnode__menu-item"
-              disabled={busy}
-              onClick={() => {
-                setMenuOpen(false);
-                actions.onNewChild(node);
-              }}
-            >
-              ＋ New child
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="gnode__menu-item"
-              onClick={() => {
-                setMenuOpen(false);
-                actions.onRelated(node);
-              }}
-            >
-              ◎ Related memory
-            </button>
-          </div>
-        )}
+          <Play />
+          Resume
+        </Button>
       </div>
 
       <Handle
