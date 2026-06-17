@@ -15,10 +15,11 @@ import type {
   WindowTarget,
   Workspace,
 } from "./types.js";
-import { loadConfig } from "./config.js";
+import { loadConfig, saveConfig as persistConfig } from "./config.js";
 import {
   listSessions as defaultDiscover,
   getSession as defaultGetSession,
+  removeStaleLocks,
   type ListOptions,
 } from "./discovery/index.js";
 import { createRegistry, type Registry } from "./registry/index.js";
@@ -31,6 +32,15 @@ import { buildWindows, annotateOpen, type OpenAnnotation } from "./snapshot/grou
 import { buildGraph } from "./graph/index.js";
 import { branchSession as defaultBranch, type ForkResult } from "./branch/index.js";
 import { createMemoryStore, type MemoryStore } from "./memory/index.js";
+import { computeStats, type StatsReport } from "./stats/index.js";
+import {
+  exportWorkspaces as serializeWorkspaces,
+  parseWorkspaceExport,
+  withFreshIds,
+} from "./export/index.js";
+import { exportTranscript } from "./transcript/index.js";
+import { diffWorkspace, type WorkspaceDiff } from "./diff/index.js";
+import { tailLogs, type LogRecord } from "./logs/index.js";
 
 /** A discovered session merged with the tool's managed metadata, for API/UI use. */
 export type SessionView = DiscoveredSession & {
@@ -40,6 +50,10 @@ export type SessionView = DiscoveredSession & {
   pinned?: boolean;
   hidden?: boolean;
   managed: boolean;
+  /** User tags for filtering/organization. */
+  tags?: string[];
+  /** Archived (hidden from default list, kept for history). */
+  archived?: boolean;
   /** "primary" = one open terminal's foreground session; "child" = co-located. */
   role?: "primary" | "child";
   /** Holder PID used to group this live session. */
@@ -70,7 +84,9 @@ export interface ManagerDeps {
 }
 
 /** Patch shape for tool-managed session metadata. */
-export type ManagedPatch = Partial<Pick<ManagedSession, "title" | "color" | "group" | "pinned" | "hidden">>;
+export type ManagedPatch = Partial<
+  Pick<ManagedSession, "title" | "color" | "group" | "pinned" | "hidden" | "tags" | "archived">
+>;
 
 /**
  * The single façade the server and CLI use. Composes discovery (read Copilot
@@ -129,6 +145,8 @@ export class SessionManager {
       pinned: managed?.pinned,
       hidden: managed?.hidden,
       managed: managed !== undefined,
+      tags: managed?.tags,
+      archived: managed?.archived,
       role,
       groupPid: ann?.groupPidById.get(s.id),
       childCount: role === "primary" ? ann?.childrenById.get(s.id)?.length ?? 0 : undefined,
@@ -159,6 +177,26 @@ export class SessionManager {
     return this.listSessionsResult(filter).sessions;
   }
 
+  /** Full detail for one session: its merged view plus any co-located children. */
+  getSessionDetail(id: string): { session: SessionView | null; children: SessionView[] } {
+    const managed = this.managedMap();
+    const live = this.discover({ liveOnly: true });
+    const ann = annotateOpen(live);
+    const target = live.find((s) => s.id === id) ?? this.getSessionFn(id);
+    if (!target) {
+      return { session: null, children: [] };
+    }
+    const session = this.toView(target, managed.get(id), ann);
+    const childIds = ann.childrenById.get(id) ?? [];
+    const children = childIds
+      .map((cid) => {
+        const c = live.find((s) => s.id === cid);
+        return c ? this.toView(c, managed.get(cid), ann) : undefined;
+      })
+      .filter((c): c is SessionView => c !== undefined);
+    return { session, children };
+  }
+
   /** Update tool-managed metadata for a session and return the merged view. */
   updateManaged(sessionId: string, patch: ManagedPatch): SessionView {
     // Only accept known, well-typed fields — never let request bodies inject a
@@ -169,6 +207,10 @@ export class SessionManager {
     if (typeof patch.group === "string") clean.group = patch.group;
     if (typeof patch.pinned === "boolean") clean.pinned = patch.pinned;
     if (typeof patch.hidden === "boolean") clean.hidden = patch.hidden;
+    if (typeof patch.archived === "boolean") clean.archived = patch.archived;
+    if (Array.isArray(patch.tags)) {
+      clean.tags = patch.tags.filter((t): t is string => typeof t === "string" && t.trim().length > 0);
+    }
     const updated = this.registry.upsertManaged({ ...clean, sessionId });
     const discovered = this.getSessionFn(sessionId);
     if (discovered) {
@@ -438,5 +480,89 @@ export class SessionManager {
 
   reindexMemory(): { count: number } {
     return this.mem().reindex();
+  }
+
+  /* ---------------------------------------------------------------- *
+   * Config, cleanup, insights, export/import, transcript, diff, logs
+   * ---------------------------------------------------------------- */
+
+  /** Persist a config patch and apply it to this manager. */
+  saveConfig(patch: Partial<AppConfig>): AppConfig {
+    const merged: AppConfig = { ...this.config, ...patch };
+    persistConfig(merged);
+    this.config = merged;
+    return merged;
+  }
+
+  /** Sessions whose lock files are stale (PID no longer a live Copilot). */
+  listStale(): SessionView[] {
+    const managed = this.managedMap();
+    return this.discover({ liveOnly: false })
+      .filter((s) => s.liveness === "stale")
+      .map((s) => this.toView(s, managed.get(s.id)));
+  }
+
+  /** Report (and optionally remove) stale dead-PID lock files under ~/.copilot. */
+  cleanStale(opts?: { remove?: boolean }): { stale: number; removed: number } {
+    const stale = this.discover({ liveOnly: false }).filter((s) => s.liveness === "stale");
+    let removed = 0;
+    if (opts?.remove) {
+      for (const s of stale) {
+        removed += removeStaleLocks(s.id);
+      }
+    }
+    return { stale: stale.length, removed };
+  }
+
+  /** Local insights/stats derived from the Copilot session store. */
+  getStats(): StatsReport {
+    return computeStats();
+  }
+
+  /** Export workspaces (all, or a selected subset) to portable JSON. */
+  exportWorkspacesJson(ids?: string[]): string {
+    const all = this.registry.listWorkspaces();
+    const selected = ids && ids.length > 0 ? all.filter((w) => ids.includes(w.id)) : all;
+    return serializeWorkspaces(selected);
+  }
+
+  /** Import workspaces from JSON (optionally with fresh ids), persisting them. */
+  importWorkspacesJson(json: string, opts?: { freshIds?: boolean }): Workspace[] {
+    const parsed = opts?.freshIds ? withFreshIds(parseWorkspaceExport(json)) : parseWorkspaceExport(json);
+    return parsed.map((ws) => this.registry.saveWorkspace(ws));
+  }
+
+  /** Export a session's conversation as Markdown. */
+  getTranscript(sessionId: string): string {
+    return exportTranscript(sessionId);
+  }
+
+  /** What changed between a saved workspace/snapshot and the current live state. */
+  getWorkspaceDiff(id: string): WorkspaceDiff | null {
+    const ws = this.getWorkspace(id);
+    if (!ws) {
+      return null;
+    }
+    return diffWorkspace(ws, this.discover({ liveOnly: true }));
+  }
+
+  /** Recent structured log records (newest last). */
+  getLogs(opts?: { lines?: number; level?: string }): LogRecord[] {
+    return tailLogs(opts);
+  }
+
+  /** Promote an auto-snapshot to a named, durable workspace. */
+  promoteSnapshot(id: string, name: string): Workspace | null {
+    const snap =
+      this.registry.listSnapshots().find((s) => s.id === id) ?? this.registry.getWorkspace(id);
+    if (!snap) {
+      return null;
+    }
+    return this.registry.createWorkspace({
+      name,
+      description: "Promoted from snapshot",
+      source: "manual",
+      windows: snap.windows,
+    });
   }
 }

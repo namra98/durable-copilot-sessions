@@ -27,6 +27,75 @@ export function createApp(manager: SessionManager): Express {
     res.json({ ok: true, version: APP_VERSION, now: new Date().toISOString() });
   });
 
+  // --- New feature routes (registered before :id routes to avoid collisions) ---
+  api.get("/stats", (_req: Request, res: Response) => {
+    res.json(manager.getStats());
+  });
+
+  api.get("/logs", (req: Request, res: Response) => {
+    res.json({
+      logs: manager.getLogs({
+        lines: req.query.lines ? Number(req.query.lines) : undefined,
+        level: typeof req.query.level === "string" ? req.query.level : undefined,
+      }),
+    });
+  });
+
+  api.put("/config", (req: Request, res: Response) => {
+    res.json({ config: manager.saveConfig((req.body ?? {}) as Record<string, never>) });
+  });
+
+  api.get("/sessions/stale", (_req: Request, res: Response) => {
+    res.json({ sessions: manager.listStale() });
+  });
+
+  api.post("/sessions/clean", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    res.json(manager.cleanStale({ remove: body.remove as boolean | undefined }));
+  });
+
+  api.get("/sessions/:id/transcript", (req: Request, res: Response) => {
+    res.type("text/markdown").send(manager.getTranscript(req.params.id));
+  });
+
+  api.get("/workspaces/export", (req: Request, res: Response) => {
+    const ids = typeof req.query.ids === "string" ? req.query.ids.split(",").filter(Boolean) : undefined;
+    res.type("application/json").send(manager.exportWorkspacesJson(ids));
+  });
+
+  api.post("/workspaces/import", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    if (typeof body.json !== "string") {
+      res.status(400).json({ error: "json (string) is required" });
+      return;
+    }
+    res.json({ workspaces: manager.importWorkspacesJson(body.json, { freshIds: body.freshIds as boolean | undefined }) });
+  });
+
+  api.get("/workspaces/:id/diff", (req: Request, res: Response) => {
+    const diff = manager.getWorkspaceDiff(req.params.id);
+    if (!diff) {
+      res.status(404).json({ error: "Workspace not found" });
+      return;
+    }
+    res.json(diff);
+  });
+
+  api.post("/workspaces/:id/promote", (req: Request, res: Response) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const name = typeof body.name === "string" ? body.name : "";
+    if (!name) {
+      res.status(400).json({ error: "name is required" });
+      return;
+    }
+    const ws = manager.promoteSnapshot(req.params.id, name);
+    if (!ws) {
+      res.status(404).json({ error: "Snapshot not found" });
+      return;
+    }
+    res.status(201).json({ workspace: ws });
+  });
+
   api.get("/sessions", (req: Request, res: Response) => {
     res.json(manager.listSessionsResult(asFilter(req.query.filter)));
   });
@@ -81,6 +150,15 @@ export function createApp(manager: SessionManager): Express {
         window: body.window as "new" | "current" | undefined,
       }),
     );
+  });
+
+  api.get("/sessions/:id", (req: Request, res: Response) => {
+    const detail = manager.getSessionDetail(req.params.id);
+    if (!detail.session) {
+      res.status(404).json({ error: "Session not found" });
+      return;
+    }
+    res.json(detail);
   });
 
   // --- Session graph ---

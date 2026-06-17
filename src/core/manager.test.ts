@@ -165,4 +165,13 @@ describe("SessionManager open-session model", () => {
     expect(launchCalls).toHaveLength(1);
     expect(launchCalls[0][0].tabs.map((t) => t.sessionId)).toEqual(["aaa", "ccc"]);
   });
+
+  it("getSessionDetail returns the view plus co-located children", () => {
+    const { mgr } = makeManager();
+    const detail = mgr.getSessionDetail("aaa");
+    expect(detail.session?.id).toBe("aaa");
+    expect(detail.session?.role).toBe("primary");
+    expect(detail.children.map((c) => c.id)).toEqual(["ccc"]);
+    expect(mgr.getSessionDetail("does-not-exist").session).toBeNull();
+  });
 });

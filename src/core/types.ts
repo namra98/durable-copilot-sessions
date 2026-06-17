@@ -130,6 +130,10 @@ export interface ManagedSession {
   pinned?: boolean;
   /** Hidden sessions are excluded from the default UI list and snapshots. */
   hidden?: boolean;
+  /** User-assigned tags for filtering/organization. */
+  tags?: string[];
+  /** Archived sessions are hidden from the default list (kept for history). */
+  archived?: boolean;
   /** ISO timestamp this metadata was last touched. */
   updatedAt: string;
 }
@@ -163,6 +167,8 @@ export interface AppConfig {
    * ["copilot", "--mcp", "workiq", ..., "--yolo"] when copilotCommand is a wrapper).
    */
   copilotArgs: string[];
+  /** Behavior of the logon scheduled task: do nothing, prompt, or auto-restore. */
+  restoreOnLogin: "off" | "prompt" | "auto";
 }
 
 /** Result of launching one or more Windows Terminal tabs. */

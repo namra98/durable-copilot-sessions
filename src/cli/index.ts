@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { Command } from "commander";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { SessionManager } from "../core/manager.js";
@@ -233,9 +234,13 @@ function buildProgram(): Command {
 
   program
     .command("restore-prompt")
-    .description("On logon: if a recent snapshot exists, open the dashboard to restore it")
+    .description("On logon: restore the last layout per the restoreOnLogin config (off|prompt|auto)")
     .action(async () => {
       const mgr = new SessionManager();
+      const mode = mgr.getConfig().restoreOnLogin;
+      if (mode === "off") {
+        return;
+      }
       const latest = mgr.latestSnapshot();
       if (!latest) {
         console.log("No snapshot available to restore.");
@@ -244,6 +249,10 @@ function buildProgram(): Command {
       console.log(
         `Last snapshot (${latest.createdAt}) has ${tabCount(latest)} session(s) across ${latest.windows.length} window(s).`,
       );
+      if (mode === "auto") {
+        printLaunch(mgr.restoreWorkspace(latest.id));
+        return;
+      }
       const srv = await startServer({ openBrowser: true });
       console.log(`Open ${srv.url} to review and restore.`);
     });
@@ -293,6 +302,101 @@ function buildProgram(): Command {
         process.exitCode = 1;
       }
       for (const w of result.warnings) console.warn(`  ! ${w}`);
+    });
+
+  program
+    .command("clean")
+    .description("Report (and optionally remove) stale dead-PID session lock files")
+    .option("--remove", "actually delete stale dead-PID lock files under ~/.copilot")
+    .action((opts: { remove?: boolean }) => {
+      const mgr = new SessionManager();
+      const r = mgr.cleanStale({ remove: opts.remove });
+      console.log(
+        `Stale sessions: ${r.stale}` +
+          (opts.remove ? `; removed ${r.removed} stale lock file(s).` : " (use --remove to delete dead-PID locks)."),
+      );
+    });
+
+  program
+    .command("stats")
+    .description("Local insights: sessions per repo, totals, recent activity")
+    .action(() => {
+      const mgr = new SessionManager();
+      const s = mgr.getStats();
+      console.log(`Sessions: ${s.totalSessions}  |  checkpoints: ${s.totalCheckpoints}  |  turns: ${s.totalTurns}`);
+      console.log("Top repositories:");
+      for (const r of s.topRepos.slice(0, 10)) console.log(`  ${String(r.sessions).padStart(4)}  ${r.repository}`);
+    });
+
+  program
+    .command("transcript <sessionId>")
+    .description("Export a session's conversation as Markdown")
+    .option("-o, --out <file>", "write to a file instead of stdout")
+    .action((sessionId: string, opts: { out?: string }) => {
+      const mgr = new SessionManager();
+      const md = mgr.getTranscript(sessionId);
+      if (opts.out) {
+        fs.writeFileSync(opts.out, md, "utf8");
+        console.log(`Wrote ${opts.out}`);
+      } else {
+        console.log(md);
+      }
+    });
+
+  program
+    .command("logs")
+    .description("Show recent structured log records")
+    .option("--lines <n>", "number of records", "200")
+    .option("--level <level>", "minimum level: debug|info|warn|error")
+    .action((opts: { lines: string; level?: string }) => {
+      const mgr = new SessionManager();
+      for (const r of mgr.getLogs({ lines: Number(opts.lines), level: opts.level })) {
+        console.log(
+          `${r.ts ?? ""} ${String(r.level ?? "").toUpperCase().padEnd(5)} ${r.scope ? `[${r.scope}] ` : ""}${r.message ?? ""}`,
+        );
+      }
+    });
+
+  program
+    .command("export-workspaces [file]")
+    .description("Export saved workspaces to portable JSON")
+    .action((file: string | undefined) => {
+      const mgr = new SessionManager();
+      const json = mgr.exportWorkspacesJson();
+      if (file) {
+        fs.writeFileSync(file, json, "utf8");
+        console.log(`Wrote ${file}`);
+      } else {
+        console.log(json);
+      }
+    });
+
+  program
+    .command("import-workspaces <file>")
+    .description("Import workspaces from a JSON export")
+    .option("--fresh-ids", "assign new ids (import as copies)")
+    .action((file: string, opts: { freshIds?: boolean }) => {
+      const mgr = new SessionManager();
+      const ws = mgr.importWorkspacesJson(fs.readFileSync(file, "utf8"), { freshIds: opts.freshIds });
+      console.log(`Imported ${ws.length} workspace(s).`);
+    });
+
+  program
+    .command("diff <workspace>")
+    .description("Show what changed between a saved workspace/snapshot and the live state")
+    .action((nameOrId: string) => {
+      const mgr = new SessionManager();
+      const ws = mgr.listWorkspaces().find((w) => w.name === nameOrId || w.id === nameOrId);
+      const d = mgr.getWorkspaceDiff(ws?.id ?? nameOrId);
+      if (!d) {
+        console.log("Workspace not found.");
+        return;
+      }
+      console.log(
+        `missing ${d.missing.length} · staleCwd ${d.staleCwd.length} · changed ${d.changed.length} · addedLive ${d.addedLive.length} · unchanged ${d.unchanged}`,
+      );
+      for (const e of d.missing) console.log(`  - missing: ${e.title}`);
+      for (const e of d.staleCwd) console.log(`  ~ cwd:     ${e.title} (${e.detail})`);
     });
 
   program

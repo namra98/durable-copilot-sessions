@@ -13,6 +13,7 @@ export const defaultConfig: AppConfig = {
   windowGrouping: "by-repo",
   copilotCommand: "copilot",
   copilotArgs: [],
+  restoreOnLogin: "prompt",
 };
 
 /**

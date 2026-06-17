@@ -438,3 +438,36 @@ export function getSession(id: string, opts?: ListOptions): DiscoveredSession | 
   }
   return session;
 }
+
+/**
+ * Delete a session's STALE lock files (those whose PID is no longer a live
+ * Copilot process). Returns the number removed. This is the only place the tool
+ * removes anything under ~/.copilot, and only ever dead-PID `inuse.*.lock` files.
+ */
+export function removeStaleLocks(
+  sessionId: string,
+  opts?: { sessionStateDir?: string; processSnapshot?: ProcessSnapshot },
+): number {
+  const dir = path.join(opts?.sessionStateDir ?? copilotSessionStateDir, sessionId);
+  const snapshot = opts?.processSnapshot ?? getProcessSnapshot();
+  let files: string[];
+  try {
+    files = fs.readdirSync(dir);
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const file of files) {
+    const match = LOCK_FILE_RE.exec(file);
+    if (!match) continue;
+    if (!pidIsLiveCopilot(Number(match[1]), snapshot)) {
+      try {
+        fs.rmSync(path.join(dir, file), { force: true });
+        removed += 1;
+      } catch {
+        // Ignore individual removal failures.
+      }
+    }
+  }
+  return removed;
+}
