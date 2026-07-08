@@ -4,7 +4,7 @@ git_root: C:\Users\example\repos\durable-copilot-sessions
 repository: namra98/durable-copilot-sessions
 branch: rust-backend-experiment
 client_name: task
-name: Branch: Morning backend session [22222222]
+name: "Branch: Morning backend session [22222222]"
 user_named: true
 created_at: 2026-07-09T00:10:00.000Z
 updated_at: 2026-07-09T00:15:00.000Z
