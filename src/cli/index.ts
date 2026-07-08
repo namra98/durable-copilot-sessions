@@ -12,6 +12,7 @@ import { ensureStateDirs } from "../core/paths.js";
 import { log } from "../core/logger.js";
 import { installTasks, uninstallTasks, tasksStatus, writeHiddenLauncher } from "../scheduling/index.js";
 import { runDoctor } from "../core/doctor/index.js";
+import { runTui } from "./tui.js";
 
 function tabCount(ws: Workspace): number {
   return ws.windows.reduce((n, w) => n + w.tabs.length, 0);
@@ -268,6 +269,13 @@ function buildProgram(): Command {
         port: opts.port ? Number(opts.port) : undefined,
       });
       console.log(`Dashboard: ${srv.url}  (Ctrl+C to stop)`);
+    });
+
+  program
+    .command("tui")
+    .description("Open the interactive terminal dashboard")
+    .action(async () => {
+      await runTui();
     });
 
   program

@@ -1,0 +1,120 @@
+import { describe, expect, it } from "vitest";
+import type { SessionView } from "../core/manager.js";
+import type { Workspace } from "../core/types.js";
+import {
+  clampIndex,
+  filterVisibleData,
+  formatSessionRow,
+  nextSessionFilter,
+  renderTui,
+  truncateText,
+  workspaceTabCount,
+  type TuiData,
+  type TuiState,
+} from "./tuiModel.js";
+
+const session: SessionView = {
+  id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+  cwd: "C:\\repo\\durable-copilot-sessions",
+  cwdExists: true,
+  name: "Dashboard work",
+  repository: "namra98/durable-copilot-sessions",
+  branch: "main",
+  liveness: "live",
+  livePids: [123],
+  topLevel: true,
+  managed: false,
+  childCount: 2,
+};
+
+const workspace: Workspace = {
+  id: "workspace-1",
+  name: "morning-layout",
+  description: "daily sessions",
+  source: "manual",
+  createdAt: "2026-07-09T00:00:00.000Z",
+  updatedAt: "2026-07-09T01:00:00.000Z",
+  windows: [
+    {
+      id: "w1",
+      tabs: [
+        { sessionId: "a", title: "one", color: "blue", cwd: "C:\\a" },
+        { sessionId: "b", title: "two", color: "green", cwd: "C:\\b" },
+      ],
+    },
+  ],
+};
+
+function data(): TuiData {
+  return {
+    sessions: { sessions: [session], openCount: 1 },
+    workspaces: [workspace],
+  };
+}
+
+function state(overrides: Partial<TuiState> = {}): TuiState {
+  return {
+    pane: "sessions",
+    filter: "open",
+    query: "",
+    mode: "normal",
+    input: "",
+    sessionIndex: 0,
+    workspaceIndex: 0,
+    ...overrides,
+  };
+}
+
+describe("tuiModel", () => {
+  it("cycles session filters", () => {
+    expect(nextSessionFilter("open")).toBe("live");
+    expect(nextSessionFilter("live")).toBe("all");
+    expect(nextSessionFilter("all")).toBe("open");
+  });
+
+  it("wraps list indices", () => {
+    expect(clampIndex(-1, 3)).toBe(2);
+    expect(clampIndex(3, 3)).toBe(0);
+    expect(clampIndex(0, 0)).toBe(0);
+  });
+
+  it("filters sessions and workspaces by query", () => {
+    expect(filterVisibleData(data(), "durable").sessions).toHaveLength(1);
+    expect(filterVisibleData(data(), "morning").workspaces).toHaveLength(1);
+    expect(filterVisibleData(data(), "missing").sessions).toHaveLength(0);
+  });
+
+  it("formats session rows with liveness and child count", () => {
+    const row = formatSessionRow(session, true, 120);
+    expect(row).toContain("> [live ");
+    expect(row).toContain("+2");
+    expect(row).toContain("namra98/durable-copilot-sessions@main");
+  });
+
+  it("counts workspace tabs", () => {
+    expect(workspaceTabCount(workspace)).toBe(2);
+  });
+
+  it("truncates text to the requested width", () => {
+    expect(truncateText("abcdef", 4)).toBe("a...");
+  });
+
+  it("renders active pane, help, and status", () => {
+    const screen = renderTui(state({ status: { kind: "success", message: "snapshot saved" } }), data(), {
+      columns: 100,
+      rows: 20,
+    });
+    expect(screen).toContain("Durable Copilot Sessions TUI");
+    expect(screen).toContain("Filter: open");
+    expect(screen).toContain("snapshot saved");
+    expect(screen).toContain("Dashboard work");
+  });
+
+  it("keeps input prompts visible in constrained terminals", () => {
+    const screen = renderTui(state({ mode: "search", input: "repo" }), data(), {
+      columns: 80,
+      rows: 10,
+    });
+    expect(screen).toContain("> repo_");
+  });
+});
