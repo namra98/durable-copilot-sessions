@@ -59,6 +59,7 @@ function defaultState(): TuiState {
   return {
     pane: "sessions",
     filter: "open",
+    theme: "midnight",
     query: "",
     mode: "normal",
     input: "",
@@ -178,7 +179,7 @@ class TuiApp {
     const columns = this.stdout.columns ?? 100;
     const rows = this.stdout.rows ?? 30;
     this.stdout.write("\x1b[2J\x1b[H");
-    this.stdout.write(renderTui(this.state, this.data, { columns, rows }));
+    this.stdout.write(renderTui(this.state, this.data, { columns, rows, color: true }));
   }
 
   private async handleInput(input: string): Promise<void> {

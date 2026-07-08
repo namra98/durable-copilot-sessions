@@ -7,6 +7,7 @@ import {
   formatSessionRow,
   handleTuiInput,
   nextSessionFilter,
+  nextTheme,
   renderTui,
   truncateText,
   workspaceTabCount,
@@ -65,6 +66,7 @@ function state(overrides: Partial<TuiState> = {}): TuiState {
   return {
     pane: "sessions",
     filter: "open",
+    theme: "midnight",
     query: "",
     mode: "normal",
     input: "",
@@ -81,6 +83,12 @@ describe("tuiModel", () => {
     expect(nextSessionFilter("all")).toBe("open");
   });
 
+  it("cycles visual themes", () => {
+    expect(nextTheme("midnight")).toBe("aurora");
+    expect(nextTheme("aurora")).toBe("mono");
+    expect(nextTheme("mono")).toBe("midnight");
+  });
+
   it("wraps list indices", () => {
     expect(clampIndex(-1, 3)).toBe(2);
     expect(clampIndex(3, 3)).toBe(0);
@@ -95,7 +103,7 @@ describe("tuiModel", () => {
 
   it("formats session rows with liveness and child count", () => {
     const row = formatSessionRow(session, true, 120);
-    expect(row).toContain("> [live ");
+    expect(row).toContain("live ");
     expect(row).toContain("+2");
     expect(row).toContain("namra98/durable-copilot-sessions@main");
   });
@@ -117,6 +125,7 @@ describe("tuiModel", () => {
     expect(screen).toContain("Filter: open");
     expect(screen).toContain("snapshot saved");
     expect(screen).toContain("Dashboard work");
+    expect(screen).toContain("Details");
   });
 
   it("keeps input prompts visible in constrained terminals", () => {
@@ -131,7 +140,7 @@ describe("tuiModel", () => {
         rows: 10,
       },
     );
-    expect(screen).toContain("> repo_");
+    expect(screen).toContain("⌕ repo_");
     expect(screen.split("\n")).toHaveLength(10);
   });
 
@@ -169,6 +178,33 @@ describe("tuiModel", () => {
     );
     expect(save.state.pane).toBe("workspaces");
     expect(save.command).toEqual({ kind: "save-workspace", name: "daily" });
+  });
+
+  it("handles premium interaction keys", () => {
+    const theme = handleTuiInput(state(), data(), "t", { defaultWorkspaceName: "layout" });
+    expect(theme.state.theme).toBe("aurora");
+    expect(theme.state.status?.message).toBe("theme set to Aurora");
+
+    const help = handleTuiInput(state(), data(), "?", { defaultWorkspaceName: "layout" });
+    expect(help.state.mode).toBe("help");
+
+    const closedHelp = handleTuiInput(state({ mode: "help" }), data(), "\u001b", {
+      defaultWorkspaceName: "layout",
+    });
+    expect(closedHelp.state.mode).toBe("normal");
+
+    const pane = handleTuiInput(state(), data(), "\u001b[C", { defaultWorkspaceName: "layout" });
+    expect(pane.state.pane).toBe("workspaces");
+  });
+
+  it("renders the interactive help overlay", () => {
+    const screen = renderTui(state({ mode: "help" }), data(), {
+      columns: 100,
+      rows: 20,
+    });
+    expect(screen).toContain("Shortcuts");
+    expect(screen).toContain("Cycle theme");
+    expect(screen).toContain("Save current open live layout");
   });
 
   it("enters search mode with the current query as editable text", () => {

@@ -236,17 +236,21 @@ In production the dashboard is served by the Express API. In development, Vite s
 ## Terminal TUI
 
 `dcs tui` opens a zero-native-dependency terminal dashboard for the same day-to-day actions when you
-do not want to launch the browser. It reads through `SessionManager` directly, so it shares the same
-discovery, registry, snapshot, and restore behavior as the CLI and web dashboard.
+do not want to launch the browser. It includes ANSI themes, Unicode status icons, a split-pane detail
+view, searchable lists, and an in-terminal help overlay while sharing the same discovery, registry,
+snapshot, and restore behavior as the CLI and web dashboard.
 
 Keyboard shortcuts:
 
 | Key | Action |
 | --- | --- |
 | `up` / `down` or `j` / `k` | Move the current selection. |
-| `Tab` | Switch between sessions and workspaces. |
+| `PgUp` / `PgDn`, `g` / `G` | Jump through the current list. |
+| `left` / `right`, `h` / `l`, or `Tab` | Switch between sessions and workspaces. |
 | `f` | Cycle session filters: open, live, all. |
 | `/` | Search sessions and workspaces. |
+| `t` | Cycle built-in themes: Midnight, Aurora, Mono. |
+| `?` | Toggle the shortcut help overlay. |
 | `Enter` | Resume the selected session or restore the selected workspace/snapshot. |
 | `w` | Save the current open live layout as a named workspace. |
 | `n` | Take a rolling auto-snapshot. |
