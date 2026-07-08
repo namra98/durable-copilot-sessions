@@ -4,7 +4,24 @@
  * Keeping these here (rather than inline in components) lets them be unit-tested
  * under the node-only vitest environment without a DOM.
  */
-import type { SessionView } from "../api/client";
+import type { SessionListResult, SessionView } from "../api/client";
+
+export interface SessionBuckets {
+  open: SessionView[];
+  live: SessionView[];
+  all: SessionView[];
+  openCount: number;
+}
+
+export function deriveSessionBuckets(result: SessionListResult): SessionBuckets {
+  const all = result.sessions;
+  return {
+    open: all.filter((s) => s.role === "primary"),
+    live: all.filter((s) => s.liveness === "live"),
+    all,
+    openCount: result.openCount,
+  };
+}
 
 /** Sort orderings offered by the toolbar. */
 export type SortKey = "recent" | "name" | "repo" | "liveness";
