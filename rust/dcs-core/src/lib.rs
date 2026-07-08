@@ -1,5 +1,6 @@
 pub mod contract;
 pub mod discovery;
+pub mod launch;
 pub mod model;
 pub mod registry;
 
