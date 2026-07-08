@@ -25,4 +25,3 @@ Add a terminal dashboard as the second interactive surface beside the existing w
 - Use only Node built-ins for terminal rendering to preserve the project's zero-native-dependency constraint.
 - Prefer a compact keyboard-driven interface over attempting to embed the web dashboard.
 - Keep launch actions explicit and visible with status messages because restore/resume can open Windows Terminal tabs.
-

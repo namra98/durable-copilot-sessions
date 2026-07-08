@@ -11,4 +11,3 @@ Final Review Specialists: correctness, usability, maintainability
 Final Review Interaction Mode: parallel
 Final Review Interactive: false
 Final Review Specialist Models: default
-
