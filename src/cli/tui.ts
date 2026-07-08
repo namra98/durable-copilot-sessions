@@ -2,26 +2,51 @@ import process from "node:process";
 import { SessionManager } from "../core/manager.js";
 import type { LaunchResult, Workspace } from "../core/types.js";
 import {
-  clampIndex,
   clampStateSelection,
   filterVisibleData,
-  nextSessionFilter,
+  handleTuiInput,
   renderTui,
   sessionTitle,
   type TuiData,
+  type TuiCommand,
   type TuiState,
   type TuiStatus,
 } from "./tuiModel.js";
 
-interface TuiIo {
-  stdin: NodeJS.ReadStream;
-  stdout: NodeJS.WriteStream;
+export interface TuiInput {
+  isTTY?: boolean;
+  isRaw: boolean;
+  setRawMode(mode: boolean): void;
+  resume(): void;
+  on(event: "data", listener: (chunk: Buffer | string) => void): this;
+  off(event: "data", listener: (chunk: Buffer | string) => void): this;
 }
 
-const ENTER_KEYS = new Set(["\r", "\n"]);
-const BACKSPACE_KEYS = new Set(["\u007f", "\b"]);
+export interface TuiOutput {
+  isTTY?: boolean;
+  columns?: number;
+  rows?: number;
+  write(chunk: string): unknown;
+  on(event: "resize", listener: () => void): this;
+  off(event: "resize", listener: () => void): this;
+}
 
-export async function runTui(manager = new SessionManager(), io: TuiIo = process): Promise<void> {
+export interface TuiIo {
+  stdin: TuiInput;
+  stdout: TuiOutput;
+}
+
+export interface TuiManager {
+  listSessionsResult: SessionManager["listSessionsResult"];
+  listWorkspaces: SessionManager["listWorkspaces"];
+  listSnapshots: SessionManager["listSnapshots"];
+  resume: SessionManager["resume"];
+  restoreWorkspace: SessionManager["restoreWorkspace"];
+  snapshot: SessionManager["snapshot"];
+  createWorkspace: SessionManager["createWorkspace"];
+}
+
+export async function runTui(manager: TuiManager = new SessionManager(), io: TuiIo = process): Promise<void> {
   if (!io.stdin.isTTY || !io.stdout.isTTY || typeof io.stdin.setRawMode !== "function") {
     throw new Error("The TUI requires an interactive terminal.");
   }
@@ -74,9 +99,9 @@ function errorStatus(error: unknown): TuiStatus {
 }
 
 class TuiApp {
-  private readonly manager: SessionManager;
-  private readonly stdin: NodeJS.ReadStream;
-  private readonly stdout: NodeJS.WriteStream;
+  private readonly manager: TuiManager;
+  private readonly stdin: TuiInput;
+  private readonly stdout: TuiOutput;
   private state: TuiState;
   private data: TuiData;
   private stopped: boolean;
@@ -86,7 +111,7 @@ class TuiApp {
   private readonly onResize: () => void;
   private readonly onSigint: () => void;
 
-  constructor(manager: SessionManager, io: TuiIo) {
+  constructor(manager: TuiManager, io: TuiIo) {
     this.manager = manager;
     this.stdin = io.stdin;
     this.stdout = io.stdout;
@@ -157,104 +182,32 @@ class TuiApp {
   }
 
   private async handleInput(input: string): Promise<void> {
-    if (input.includes("\u0003")) {
-      this.stop();
+    const result = handleTuiInput(this.state, this.data, input, {
+      defaultWorkspaceName: defaultWorkspaceName(),
+    });
+    this.state = result.state;
+    if (result.command && this.runCommand(result.command)) {
       return;
     }
-
-    if (this.state.mode !== "normal") {
-      await this.handleTextInput(input);
-      this.render();
-      return;
-    }
-
-    if (input === "\u001b[A" || input === "k") {
-      this.moveSelection(-1);
-    } else if (input === "\u001b[B" || input === "j") {
-      this.moveSelection(1);
-    } else if (input === "\t") {
-      this.state = {
-        ...this.state,
-        pane: this.state.pane === "sessions" ? "workspaces" : "sessions",
-      };
-    } else if (input === "f") {
-      const filter = nextSessionFilter(this.state.filter);
-      this.state = { ...this.state, filter, sessionIndex: 0 };
-      this.refresh({ kind: "info", message: `filter set to ${filter}` });
-    } else if (input === "/") {
-      this.state = { ...this.state, mode: "search", input: this.state.query };
-    } else if (input === "r") {
-      this.refresh({ kind: "success", message: "refreshed" });
-    } else if (input === "w") {
-      this.state = { ...this.state, mode: "save-workspace", input: defaultWorkspaceName() };
-    } else if (input === "n") {
-      const snapshot = this.manager.snapshot();
-      this.refresh({ kind: "success", message: `snapshot saved: ${snapshot.name}` });
-    } else if (ENTER_KEYS.has(input)) {
-      this.activateSelection();
-    } else if (input === "q" || input === "\u001b") {
-      if (input === "\u001b" && this.state.query) {
-        this.state = { ...this.state, query: "", sessionIndex: 0, workspaceIndex: 0 };
-        this.refresh({ kind: "info", message: "search cleared" });
-      } else {
-        this.stop();
-        return;
-      }
-    }
-
     this.render();
   }
 
-  private async handleTextInput(input: string): Promise<void> {
-    if (input === "\u001b") {
-      this.state = { ...this.state, mode: "normal", input: "" };
-      return;
+  private runCommand(command: TuiCommand): boolean {
+    if (command.kind === "quit") {
+      this.stop();
+      return true;
     }
-
-    if (ENTER_KEYS.has(input)) {
-      if (this.state.mode === "search") {
-        this.state = {
-          ...this.state,
-          mode: "normal",
-          query: this.state.input.trim(),
-          input: "",
-          sessionIndex: 0,
-          workspaceIndex: 0,
-        };
-        this.refresh({ kind: "info", message: "search applied" });
-      } else {
-        this.saveWorkspace(this.state.input.trim());
-      }
-      return;
-    }
-
-    if (BACKSPACE_KEYS.has(input)) {
-      this.state = { ...this.state, input: this.state.input.slice(0, -1) };
-      return;
-    }
-
-    let nextInput = this.state.input;
-    for (const char of input) {
-      if (char >= " " && char !== "\u007f") {
-        nextInput += char;
-      }
-    }
-    this.state = { ...this.state, input: nextInput };
-  }
-
-  private moveSelection(delta: number): void {
-    const visible = filterVisibleData(this.data, this.state.query);
-    if (this.state.pane === "sessions") {
-      this.state = {
-        ...this.state,
-        sessionIndex: clampIndex(this.state.sessionIndex + delta, visible.sessions.length),
-      };
+    if (command.kind === "refresh") {
+      this.refresh(command.status);
+    } else if (command.kind === "snapshot") {
+      const snapshot = this.manager.snapshot();
+      this.refresh({ kind: "success", message: `snapshot saved: ${snapshot.name}` });
+    } else if (command.kind === "activate") {
+      this.activateSelection();
     } else {
-      this.state = {
-        ...this.state,
-        workspaceIndex: clampIndex(this.state.workspaceIndex + delta, visible.workspaces.length),
-      };
+      this.saveWorkspace(command.name);
     }
+    return false;
   }
 
   private activateSelection(): void {
@@ -291,15 +244,8 @@ class TuiApp {
     const workspace = this.manager.createWorkspace({
       name,
       fromLive: true,
-      filter: this.state.filter,
+      filter: "open",
     });
-    this.state = {
-      ...this.state,
-      mode: "normal",
-      input: "",
-      pane: "workspaces",
-      workspaceIndex: 0,
-    };
-    this.refresh({ kind: "success", message: `workspace saved: ${workspace.name}` });
+    this.refresh({ kind: "success", message: `workspace saved from open live layout: ${workspace.name}` });
   }
 }

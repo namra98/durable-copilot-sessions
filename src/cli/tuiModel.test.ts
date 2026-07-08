@@ -5,6 +5,7 @@ import {
   clampIndex,
   filterVisibleData,
   formatSessionRow,
+  handleTuiInput,
   nextSessionFilter,
   renderTui,
   truncateText,
@@ -50,6 +51,14 @@ function data(): TuiData {
     sessions: { sessions: [session], openCount: 1 },
     workspaces: [workspace],
   };
+}
+
+function manySessions(count: number): SessionView[] {
+  return Array.from({ length: count }, (_, index) => ({
+    ...session,
+    id: `session-${String(index).padStart(2, "0")}`,
+    name: `Session ${index}`,
+  }));
 }
 
 function state(overrides: Partial<TuiState> = {}): TuiState {
@@ -111,10 +120,62 @@ describe("tuiModel", () => {
   });
 
   it("keeps input prompts visible in constrained terminals", () => {
-    const screen = renderTui(state({ mode: "search", input: "repo" }), data(), {
-      columns: 80,
-      rows: 10,
-    });
+    const screen = renderTui(
+      state({ mode: "search", input: "repo", sessionIndex: 14 }),
+      {
+        sessions: { sessions: manySessions(15), openCount: 15 },
+        workspaces: [],
+      },
+      {
+        columns: 80,
+        rows: 10,
+      },
+    );
     expect(screen).toContain("> repo_");
+    expect(screen.split("\n")).toHaveLength(10);
+  });
+
+  it("renders a bounded minimum-size message for tiny terminals", () => {
+    const screen = renderTui(state(), data(), {
+      columns: 20,
+      rows: 2,
+    });
+    expect(screen).toContain("Terminal too small");
+    expect(screen.split("\n")).toHaveLength(2);
+    expect(screen.split("\n").every((line) => line.length <= 20)).toBe(true);
+  });
+
+  it("drops escape sequences while editing text input", () => {
+    const result = handleTuiInput(
+      state({ mode: "search", input: "repo" }),
+      data(),
+      "\u001b[A",
+      { defaultWorkspaceName: "layout" },
+    );
+    expect(result.state.input).toBe("repo");
+    expect(result.command).toBeUndefined();
+  });
+
+  it("emits commands for key-driven actions", () => {
+    const filter = handleTuiInput(state(), data(), "f", { defaultWorkspaceName: "layout" });
+    expect(filter.state.filter).toBe("live");
+    expect(filter.command).toEqual({ kind: "refresh", status: { kind: "info", message: "filter set to live" } });
+
+    const save = handleTuiInput(
+      state({ mode: "save-workspace", input: "daily" }),
+      data(),
+      "\r",
+      { defaultWorkspaceName: "layout" },
+    );
+    expect(save.state.pane).toBe("workspaces");
+    expect(save.command).toEqual({ kind: "save-workspace", name: "daily" });
+  });
+
+  it("enters search mode with the current query as editable text", () => {
+    const result = handleTuiInput(state({ query: "repo" }), data(), "/", {
+      defaultWorkspaceName: "layout",
+    });
+    expect(result.state.mode).toBe("search");
+    expect(result.state.input).toBe("repo");
   });
 });

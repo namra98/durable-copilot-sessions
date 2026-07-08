@@ -36,7 +36,25 @@ export interface VisibleTuiData {
   workspaces: Workspace[];
 }
 
+export type TuiCommand =
+  | { kind: "activate" }
+  | { kind: "refresh"; status: TuiStatus }
+  | { kind: "snapshot" }
+  | { kind: "save-workspace"; name: string }
+  | { kind: "quit" };
+
+export interface TuiInputResult {
+  state: TuiState;
+  command?: TuiCommand;
+}
+
+export interface TuiInputOptions {
+  defaultWorkspaceName: string;
+}
+
 const FILTER_ORDER: SessionFilter[] = ["open", "live", "all"];
+const ENTER_KEYS = new Set(["\r", "\n"]);
+const BACKSPACE_KEYS = new Set(["\u007f", "\b"]);
 
 export function nextSessionFilter(filter: SessionFilter): SessionFilter {
   const index = FILTER_ORDER.indexOf(filter);
@@ -110,6 +128,142 @@ export function clampStateSelection(state: TuiState, visible: VisibleTuiData): T
   };
 }
 
+export function handleTuiInput(
+  state: TuiState,
+  data: TuiData,
+  input: string,
+  options: TuiInputOptions,
+): TuiInputResult {
+  if (input.includes("\u0003")) {
+    return { state, command: { kind: "quit" } };
+  }
+
+  if (state.mode !== "normal") {
+    return handleTextInput(state, input);
+  }
+
+  if (input === "\u001b[A" || input === "k") {
+    return { state: moveSelection(state, data, -1) };
+  }
+  if (input === "\u001b[B" || input === "j") {
+    return { state: moveSelection(state, data, 1) };
+  }
+  if (input === "\t") {
+    return {
+      state: {
+        ...state,
+        pane: state.pane === "sessions" ? "workspaces" : "sessions",
+      },
+    };
+  }
+  if (input === "f") {
+    const filter = nextSessionFilter(state.filter);
+    return {
+      state: { ...state, filter, sessionIndex: 0 },
+      command: { kind: "refresh", status: { kind: "info", message: `filter set to ${filter}` } },
+    };
+  }
+  if (input === "/") {
+    return { state: { ...state, mode: "search", input: state.query } };
+  }
+  if (input === "r") {
+    return { state, command: { kind: "refresh", status: { kind: "success", message: "refreshed" } } };
+  }
+  if (input === "w") {
+    return { state: { ...state, mode: "save-workspace", input: options.defaultWorkspaceName } };
+  }
+  if (input === "n") {
+    return { state, command: { kind: "snapshot" } };
+  }
+  if (ENTER_KEYS.has(input)) {
+    return { state, command: { kind: "activate" } };
+  }
+  if (input === "q" || input === "\u001b") {
+    if (input === "\u001b" && state.query) {
+      return {
+        state: { ...state, query: "", sessionIndex: 0, workspaceIndex: 0 },
+        command: { kind: "refresh", status: { kind: "info", message: "search cleared" } },
+      };
+    }
+    return { state, command: { kind: "quit" } };
+  }
+
+  return { state };
+}
+
+function handleTextInput(state: TuiState, input: string): TuiInputResult {
+  if (input === "\u001b") {
+    return { state: { ...state, mode: "normal", input: "" } };
+  }
+
+  if (input.includes("\u001b")) {
+    return { state };
+  }
+
+  if (ENTER_KEYS.has(input)) {
+    if (state.mode === "search") {
+      return {
+        state: {
+          ...state,
+          mode: "normal",
+          query: state.input.trim(),
+          input: "",
+          sessionIndex: 0,
+          workspaceIndex: 0,
+        },
+        command: { kind: "refresh", status: { kind: "info", message: "search applied" } },
+      };
+    }
+
+    const name = state.input.trim();
+    if (!name) {
+      return {
+        state: {
+          ...state,
+          status: { kind: "error", message: "workspace name is required" },
+        },
+      };
+    }
+
+    return {
+      state: {
+        ...state,
+        mode: "normal",
+        input: "",
+        pane: "workspaces",
+        workspaceIndex: 0,
+      },
+      command: { kind: "save-workspace", name },
+    };
+  }
+
+  if (BACKSPACE_KEYS.has(input)) {
+    return { state: { ...state, input: state.input.slice(0, -1) } };
+  }
+
+  let nextInput = state.input;
+  for (const char of input) {
+    if (char >= " " && char !== "\u007f") {
+      nextInput += char;
+    }
+  }
+  return { state: { ...state, input: nextInput } };
+}
+
+function moveSelection(state: TuiState, data: TuiData, delta: number): TuiState {
+  const visible = filterVisibleData(data, state.query);
+  if (state.pane === "sessions") {
+    return {
+      ...state,
+      sessionIndex: clampIndex(state.sessionIndex + delta, visible.sessions.length),
+    };
+  }
+  return {
+    ...state,
+    workspaceIndex: clampIndex(state.workspaceIndex + delta, visible.workspaces.length),
+  };
+}
+
 export function formatSessionRow(session: SessionView, selected: boolean, width: number): string {
   const marker = selected ? ">" : " ";
   const child = session.childCount && session.childCount > 0 ? ` +${session.childCount}` : "";
@@ -131,7 +285,7 @@ export function formatWorkspaceRow(workspace: Workspace, selected: boolean, widt
 function helpLine(mode: TuiMode): string {
   if (mode === "search") return "Search: type text, Enter apply, Esc cancel";
   if (mode === "save-workspace") return "Save workspace: type name, Enter save, Esc cancel";
-  return "Keys: up/down or j/k move | Tab pane | f filter | / search | Enter resume/restore | w save | n snapshot | r refresh | q quit";
+  return "Keys: up/down or j/k move | Tab pane | f filter | / search | Enter resume/restore | w save open layout | n snapshot | r refresh | q quit";
 }
 
 function renderStatus(status: TuiStatus | undefined, width: number): string {
@@ -151,8 +305,19 @@ function formatActiveRow(
 }
 
 export function renderTui(state: TuiState, data: TuiData, options: TuiRenderOptions): string {
-  const width = Math.max(40, options.columns);
-  const height = Math.max(10, options.rows);
+  const width = Math.max(1, options.columns);
+  const height = Math.max(0, options.rows);
+  if (height === 0) return "";
+  if (options.columns < 40 || options.rows < 10) {
+    return [
+      "Durable Copilot Sessions TUI",
+      "Terminal too small",
+      "Minimum size: 40x10",
+    ]
+      .map((line) => truncateText(line, width))
+      .slice(0, height)
+      .join("\n");
+  }
   const visible = filterVisibleData(data, state.query);
   const safeState = clampStateSelection(state, visible);
   const activeRows = safeState.pane === "sessions" ? visible.sessions : visible.workspaces;

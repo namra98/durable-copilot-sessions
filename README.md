@@ -248,7 +248,7 @@ Keyboard shortcuts:
 | `f` | Cycle session filters: open, live, all. |
 | `/` | Search sessions and workspaces. |
 | `Enter` | Resume the selected session or restore the selected workspace/snapshot. |
-| `w` | Save the current layout as a named workspace. |
+| `w` | Save the current open live layout as a named workspace. |
 | `n` | Take a rolling auto-snapshot. |
 | `r` | Refresh discovery and workspace lists. |
 | `q` | Quit. |
