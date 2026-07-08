@@ -1,0 +1,151 @@
+{
+  "kind": "durable-copilot-sessions/backend-contract",
+  "version": 1,
+  "apiBase": "/api",
+  "compatibility": {
+    "scope": "backend-core-only",
+    "frontendStatus": "React dashboard is a temporary consumer; future TUI should bind to this contract.",
+    "statePolicy": "Rust backend must preserve existing on-disk JSON formats unless a versioned migration is added.",
+    "copilotStatePolicy": "Copilot session-state is read-only by default; stale-lock cleanup and fork creation remain explicit commands."
+  },
+  "routes": [
+    { "method": "GET", "path": "/health", "response": "HealthResponse" },
+    { "method": "GET", "path": "/stats", "response": "StatsReport" },
+    { "method": "GET", "path": "/logs", "query": ["lines", "level"], "response": "{ logs: LogRecord[] }" },
+    { "method": "PUT", "path": "/config", "request": "Partial<AppConfig>", "response": "{ config: AppConfig }" },
+    { "method": "GET", "path": "/sessions/stale", "response": "{ sessions: SessionView[] }" },
+    { "method": "POST", "path": "/sessions/clean", "request": "{ remove?: boolean }", "response": "{ stale: number, removed: number }" },
+    { "method": "GET", "path": "/sessions/:id/transcript", "response": "text/markdown" },
+    { "method": "GET", "path": "/workspaces/export", "query": ["ids"], "response": "WorkspaceExport JSON text" },
+    { "method": "POST", "path": "/workspaces/import", "request": "{ json: string, freshIds?: boolean }", "response": "{ workspaces: Workspace[] }" },
+    { "method": "GET", "path": "/workspaces/:id/diff", "response": "WorkspaceDiff" },
+    { "method": "POST", "path": "/workspaces/:id/promote", "request": "{ name: string }", "response": "{ workspace: Workspace }" },
+    { "method": "GET", "path": "/sessions", "query": ["filter=open|live|all"], "response": "SessionListResult" },
+    { "method": "PATCH", "path": "/sessions/:id", "request": "SessionPatch", "response": "{ session: SessionView }" },
+    { "method": "POST", "path": "/sessions/:id/resume", "request": "ResumeBody", "response": "LaunchResult" },
+    { "method": "POST", "path": "/sessions/resume-batch", "request": "ResumeBatchBody", "response": "LaunchResult" },
+    { "method": "POST", "path": "/sessions/new", "request": "NewSessionBody", "response": "LaunchResult" },
+    { "method": "POST", "path": "/sessions/:id/fork", "request": "ForkBody", "response": "ForkResult" },
+    { "method": "GET", "path": "/sessions/:id", "response": "SessionDetail" },
+    { "method": "GET", "path": "/graph", "query": ["filter=open|live|all"], "response": "GraphModel" },
+    { "method": "GET", "path": "/memory/search", "query": ["q", "repository", "kind", "limit"], "response": "{ hits: MemorySearchHit[] }" },
+    { "method": "GET", "path": "/memory/related/:sessionId", "response": "{ memories: Memory[] }" },
+    { "method": "GET", "path": "/memory/recall", "query": ["repository", "branch"], "response": "{ pack: MemoryRecallPack }" },
+    { "method": "GET", "path": "/memory/session/:id", "response": "{ memories: Memory[] }" },
+    { "method": "POST", "path": "/memory/reindex", "response": "{ count: number }" },
+    { "method": "GET", "path": "/workspaces", "response": "{ workspaces: Workspace[] }" },
+    { "method": "GET", "path": "/workspaces/:id", "response": "{ workspace: Workspace }" },
+    { "method": "POST", "path": "/workspaces", "request": "CreateWorkspaceBody", "response": "{ workspace: Workspace }" },
+    { "method": "DELETE", "path": "/workspaces/:id", "response": "{ ok: true }" },
+    { "method": "POST", "path": "/workspaces/:id/restore", "request": "RestoreBody", "response": "LaunchResult" },
+    { "method": "POST", "path": "/snapshot", "response": "{ workspace: Workspace }" },
+    { "method": "GET", "path": "/snapshots", "response": "{ snapshots: Workspace[] }" },
+    { "method": "GET", "path": "/config", "response": "{ config: AppConfig }" }
+  ],
+  "cli": {
+    "commands": [
+      { "name": "list" },
+      { "name": "resume" },
+      { "name": "fork" },
+      { "name": "recall" },
+      { "name": "reindex-memory" },
+      { "name": "save" },
+      { "name": "restore" },
+      { "name": "resume-repo" },
+      { "name": "restore-last" },
+      { "name": "snapshot" },
+      { "name": "restore-prompt" },
+      { "name": "ui" },
+      { "name": "serve" },
+      { "name": "new" },
+      { "name": "clean" },
+      { "name": "stats" },
+      { "name": "transcript" },
+      { "name": "logs" },
+      { "name": "export-workspaces" },
+      { "name": "import-workspaces" },
+      { "name": "diff" },
+      { "name": "tray" },
+      { "name": "install-tasks" },
+      { "name": "uninstall-tasks" },
+      { "name": "tasks-status" },
+      { "name": "doctor" }
+    ]
+  },
+  "environment": [
+    { "name": "DCS_STATE_DIR", "effect": "Overrides owned state directory." },
+    { "name": "DCS_COPILOT_HOME", "effect": "Overrides read-only Copilot home directory." },
+    { "name": "DCS_API_PORT", "effect": "Overrides API port for Vite dev proxy." },
+    { "name": "DCS_WEB_PORT", "effect": "Overrides Vite dev server port." },
+    { "name": "DCS_LOG_LEVEL", "effect": "Controls structured log verbosity." }
+  ],
+  "state": {
+    "ownedRoot": "~\\.durable-copilot-sessions\\state",
+    "copilotRoot": "~\\.copilot",
+    "schemas": {
+      "AppConfig": {
+        "requiredFields": [
+          "apiPort",
+          "webPort",
+          "snapshotIntervalMinutes",
+          "maxAutoSnapshots",
+          "colorStrategy",
+          "autoOpenBrowser",
+          "windowGrouping",
+          "copilotCommand",
+          "copilotArgs",
+          "restoreOnLogin"
+        ]
+      },
+      "ManagedSession": {
+        "requiredFields": ["sessionId", "updatedAt"],
+        "optionalFields": ["title", "color", "group", "pinned", "hidden", "tags", "archived"]
+      },
+      "Workspace": {
+        "requiredFields": ["id", "name", "source", "createdAt", "updatedAt", "windows"]
+      },
+      "WindowSpec": {
+        "requiredFields": ["id", "tabs"],
+        "optionalFields": ["label"]
+      },
+      "TabSpec": {
+        "requiredFields": ["sessionId", "title", "color", "cwd"],
+        "optionalFields": ["copilotArgs"]
+      },
+      "WorkspaceExport": {
+        "requiredFields": ["kind", "version", "exportedAt", "workspaces"],
+        "kind": "durable-copilot-sessions/workspaces",
+        "version": 1
+      },
+      "WorkspaceYaml": {
+        "source": "~\\.copilot\\session-state\\<id>\\workspace.yaml",
+        "readOnly": true,
+        "fields": [
+          "id",
+          "cwd",
+          "git_root",
+          "repository",
+          "branch",
+          "client_name",
+          "name",
+          "user_named",
+          "created_at",
+          "updated_at",
+          "branch_of",
+          "branch_note"
+        ]
+      }
+    }
+  },
+  "fixtures": {
+    "root": "tests\\fixtures\\contracts",
+    "appConfig": "tests\\fixtures\\contracts\\owned-state\\config.json",
+    "managedSession": "tests\\fixtures\\contracts\\owned-state\\registry\\sessions\\11111111-1111-1111-1111-111111111111.json",
+    "workspace": "tests\\fixtures\\contracts\\owned-state\\registry\\workspaces\\workspace-morning.json",
+    "snapshot": "tests\\fixtures\\contracts\\owned-state\\snapshots\\2026-07-09T00-00-00-000Z-snapshot-open.json",
+    "workspaceExport": "tests\\fixtures\\contracts\\workspace-export.v1.json",
+    "workspaceYaml": "tests\\fixtures\\contracts\\copilot-home\\session-state\\11111111-1111-1111-1111-111111111111\\workspace.yaml",
+    "apiSessionsOpen": "tests\\fixtures\\contracts\\api\\sessions.open.json",
+    "apiGraphOpen": "tests\\fixtures\\contracts\\api\\graph.open.json"
+  }
+}

@@ -1,0 +1,15 @@
+[package]
+name = "dcs-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "dcs-rs"
+path = "src/main.rs"
+
+[dependencies]
+dcs-core.workspace = true
+
+[lints]
+workspace = true

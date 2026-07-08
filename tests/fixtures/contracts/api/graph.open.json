@@ -1,0 +1,43 @@
+{
+  "nodes": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "label": "Morning backend session",
+      "repository": "namra98/durable-copilot-sessions",
+      "branch": "main",
+      "cwd": "C:\\Users\\example\\repos\\durable-copilot-sessions",
+      "color": "#3B82F6",
+      "liveness": "live",
+      "role": "primary",
+      "isFork": false,
+      "childCount": 1
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "label": "Branch: Morning backend session [22222222]",
+      "repository": "namra98/durable-copilot-sessions",
+      "branch": "rust-backend-experiment",
+      "cwd": "C:\\Users\\example\\repos\\durable-copilot-sessions",
+      "color": "#10B981",
+      "liveness": "live",
+      "role": "child",
+      "isFork": true,
+      "childCount": 0
+    }
+  ],
+  "edges": [
+    {
+      "id": "fork:11111111-1111-1111-1111-111111111111->22222222-2222-2222-2222-222222222222",
+      "source": "11111111-1111-1111-1111-111111111111",
+      "target": "22222222-2222-2222-2222-222222222222",
+      "kind": "fork"
+    },
+    {
+      "id": "terminal:11111111-1111-1111-1111-111111111111->22222222-2222-2222-2222-222222222222",
+      "source": "11111111-1111-1111-1111-111111111111",
+      "target": "22222222-2222-2222-2222-222222222222",
+      "kind": "terminal"
+    }
+  ],
+  "openCount": 1
+}
