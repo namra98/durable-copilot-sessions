@@ -1,6 +1,6 @@
 import process from "node:process";
 import { SessionManager } from "../core/manager.js";
-import type { LaunchResult, Workspace } from "../core/types.js";
+import type { LaunchResult, MemorySearchHit, Workspace } from "../core/types.js";
 import {
   clampStateSelection,
   filterVisibleData,
@@ -44,6 +44,7 @@ export interface TuiManager {
   restoreWorkspace: SessionManager["restoreWorkspace"];
   snapshot: SessionManager["snapshot"];
   createWorkspace: SessionManager["createWorkspace"];
+  searchMemory: SessionManager["searchMemory"];
 }
 
 export async function runTui(manager: TuiManager = new SessionManager(), io: TuiIo = process): Promise<void> {
@@ -65,6 +66,7 @@ function defaultState(): TuiState {
     input: "",
     sessionIndex: 0,
     workspaceIndex: 0,
+    memoryIndex: 0,
     status: { kind: "info", message: "ready" },
   };
 }
@@ -117,7 +119,7 @@ class TuiApp {
     this.stdin = io.stdin;
     this.stdout = io.stdout;
     this.state = defaultState();
-    this.data = { sessions: { sessions: [], openCount: 0 }, workspaces: [] };
+    this.data = { sessions: { sessions: [], openCount: 0 }, workspaces: [], memoryHits: [] };
     this.stopped = false;
     this.originalRawMode = this.stdin.isRaw;
     this.onData = (chunk) => {
@@ -162,9 +164,11 @@ class TuiApp {
   }
 
   private refresh(status?: TuiStatus): void {
+    const memoryHits = this.searchMemory();
     this.data = {
       sessions: this.manager.listSessionsResult(this.state.filter),
       workspaces: sortWorkspaces([...this.manager.listWorkspaces(), ...this.manager.listSnapshots()]),
+      memoryHits,
     };
     this.state = clampStateSelection(
       {
@@ -221,7 +225,7 @@ class TuiApp {
       }
       const result = this.manager.resume({ sessionId: session.id, window: "new" });
       this.state = { ...this.state, status: summarizeLaunch(`resumed ${sessionTitle(session)}`, result) };
-    } else {
+    } else if (this.state.pane === "workspaces") {
       const workspace = visible.workspaces[this.state.workspaceIndex];
       if (!workspace) {
         this.state = { ...this.state, status: { kind: "error", message: "no workspace selected" } };
@@ -229,7 +233,24 @@ class TuiApp {
       }
       const result = this.manager.restoreWorkspace(workspace.id, { window: "new" });
       this.state = { ...this.state, status: summarizeLaunch(`restored ${workspace.name}`, result) };
+    } else {
+      const hit = visible.memoryHits[this.state.memoryIndex];
+      if (!hit) {
+        this.state = { ...this.state, status: { kind: "error", message: "no memory selected" } };
+        return;
+      }
+      const result = this.manager.resume({ sessionId: hit.memory.sessionId, window: "new" });
+      this.state = {
+        ...this.state,
+        status: summarizeLaunch(`opened memory source ${memoryTitle(hit)}`, result),
+      };
     }
+  }
+
+  private searchMemory(): MemorySearchHit[] {
+    const query = this.state.query.trim();
+    if (!query) return [];
+    return this.manager.searchMemory(query, { limit: 12 });
   }
 
   private saveWorkspace(name: string): void {
@@ -249,4 +270,8 @@ class TuiApp {
     });
     this.refresh({ kind: "success", message: `workspace saved from open live layout: ${workspace.name}` });
   }
+}
+
+function memoryTitle(hit: MemorySearchHit): string {
+  return hit.memory.title ?? hit.memory.sessionId.slice(0, 8);
 }

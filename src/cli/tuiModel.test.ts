@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { SessionView } from "../core/manager.js";
-import type { Workspace } from "../core/types.js";
+import type { MemorySearchHit, Workspace } from "../core/types.js";
 import {
   clampIndex,
   filterVisibleData,
   formatSessionRow,
+  formatMemoryRow,
   handleTuiInput,
   nextSessionFilter,
   nextTheme,
@@ -47,10 +48,28 @@ const workspace: Workspace = {
   ],
 };
 
+const memoryHit: MemorySearchHit = {
+  memory: {
+    id: "memory-1",
+    sessionId: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+    kind: "decision",
+    title: "Use terminal UI",
+    content: "Decision: add memory-aware search to the TUI dashboard.",
+    repository: "namra98/durable-copilot-sessions",
+    branch: "main",
+    sourceTable: "checkpoints",
+    createdAt: Date.parse("2026-07-09T00:00:00.000Z"),
+    updatedAt: Date.parse("2026-07-09T01:00:00.000Z"),
+  },
+  score: 1,
+  snippet: "add [memory-aware] search",
+};
+
 function data(): TuiData {
   return {
     sessions: { sessions: [session], openCount: 1 },
     workspaces: [workspace],
+    memoryHits: [memoryHit],
   };
 }
 
@@ -72,6 +91,7 @@ function state(overrides: Partial<TuiState> = {}): TuiState {
     input: "",
     sessionIndex: 0,
     workspaceIndex: 0,
+    memoryIndex: 0,
     ...overrides,
   };
 }
@@ -85,7 +105,10 @@ describe("tuiModel", () => {
 
   it("cycles visual themes", () => {
     expect(nextTheme("midnight")).toBe("aurora");
-    expect(nextTheme("aurora")).toBe("mono");
+    expect(nextTheme("aurora")).toBe("tokyo");
+    expect(nextTheme("tokyo")).toBe("catppuccin");
+    expect(nextTheme("catppuccin")).toBe("matrix");
+    expect(nextTheme("matrix")).toBe("mono");
     expect(nextTheme("mono")).toBe("midnight");
   });
 
@@ -98,6 +121,7 @@ describe("tuiModel", () => {
   it("filters sessions and workspaces by query", () => {
     expect(filterVisibleData(data(), "durable").sessions).toHaveLength(1);
     expect(filterVisibleData(data(), "morning").workspaces).toHaveLength(1);
+    expect(filterVisibleData(data(), "memory-aware").memoryHits).toHaveLength(1);
     expect(filterVisibleData(data(), "missing").sessions).toHaveLength(0);
   });
 
@@ -110,6 +134,13 @@ describe("tuiModel", () => {
 
   it("counts workspace tabs", () => {
     expect(workspaceTabCount(workspace)).toBe(2);
+  });
+
+  it("formats memory rows with kind, title, and snippets", () => {
+    const row = formatMemoryRow(memoryHit, true, 120);
+    expect(row).toContain("decision");
+    expect(row).toContain("Use terminal UI");
+    expect(row).toContain("memory-aware");
   });
 
   it("truncates text to the requested width", () => {
@@ -134,6 +165,7 @@ describe("tuiModel", () => {
       {
         sessions: { sessions: manySessions(15), openCount: 15 },
         workspaces: [],
+        memoryHits: [],
       },
       {
         columns: 80,
@@ -195,6 +227,12 @@ describe("tuiModel", () => {
 
     const pane = handleTuiInput(state(), data(), "\u001b[C", { defaultWorkspaceName: "layout" });
     expect(pane.state.pane).toBe("workspaces");
+
+    const memory = handleTuiInput(state(), data(), "m", { defaultWorkspaceName: "layout" });
+    expect(memory.state.pane).toBe("memory");
+
+    const save = handleTuiInput(state(), data(), "s", { defaultWorkspaceName: "layout" });
+    expect(save.state.mode).toBe("save-workspace");
   });
 
   it("renders the interactive help overlay", () => {
@@ -205,6 +243,17 @@ describe("tuiModel", () => {
     expect(screen).toContain("Shortcuts");
     expect(screen).toContain("Cycle theme");
     expect(screen).toContain("Save current open live layout");
+    expect(screen).toContain("memory source");
+  });
+
+  it("renders memory search results and details", () => {
+    const screen = renderTui(state({ pane: "memory", query: "memory-aware" }), data(), {
+      columns: 110,
+      rows: 20,
+    });
+    expect(screen).toContain("Memory");
+    expect(screen).toContain("Use terminal UI");
+    expect(screen).toContain("Enter/o opens the source session");
   });
 
   it("enters search mode with the current query as editable text", () => {

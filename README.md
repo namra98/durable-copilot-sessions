@@ -236,9 +236,10 @@ In production the dashboard is served by the Express API. In development, Vite s
 ## Terminal TUI
 
 `dcs tui` opens a zero-native-dependency terminal dashboard for the same day-to-day actions when you
-do not want to launch the browser. It includes ANSI themes, Unicode status icons, a split-pane detail
-view, searchable lists, and an in-terminal help overlay while sharing the same discovery, registry,
-snapshot, and restore behavior as the CLI and web dashboard.
+do not want to launch the browser. It includes polished ANSI themes (Midnight, Aurora, Tokyo,
+Catppuccin, Matrix, Mono), Unicode status icons, a split-pane detail view, searchable sessions /
+layouts / memory, and an in-terminal help overlay while sharing the same discovery, registry,
+snapshot, memory, and restore behavior as the CLI and web dashboard.
 
 Keyboard shortcuts:
 
@@ -246,13 +247,14 @@ Keyboard shortcuts:
 | --- | --- |
 | `up` / `down` or `j` / `k` | Move the current selection. |
 | `PgUp` / `PgDn`, `g` / `G` | Jump through the current list. |
-| `left` / `right`, `h` / `l`, or `Tab` | Switch between sessions and workspaces. |
+| `left` / `right`, `h` / `l`, or `Tab` | Switch between sessions, workspaces, and memory. |
+| `m` | Jump to the memory search pane. |
 | `f` | Cycle session filters: open, live, all. |
-| `/` | Search sessions and workspaces. |
-| `t` | Cycle built-in themes: Midnight, Aurora, Mono. |
+| `/` | Search sessions, workspaces, and local session memory. |
+| `t` | Cycle built-in themes: Midnight, Aurora, Tokyo, Catppuccin, Matrix, Mono. |
 | `?` | Toggle the shortcut help overlay. |
-| `Enter` | Resume the selected session or restore the selected workspace/snapshot. |
-| `w` | Save the current open live layout as a named workspace. |
+| `Enter` or `o` | Resume the selected session, restore the selected workspace/snapshot, or open a memory result's source session. |
+| `w` or `s` | Save the current open live layout as a named workspace. |
 | `n` | Take a rolling auto-snapshot. |
 | `r` | Refresh discovery and workspace lists. |
 | `q` | Quit. |
