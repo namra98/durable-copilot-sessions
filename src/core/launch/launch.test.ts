@@ -190,12 +190,16 @@ describe("resolveExecutable (PATHEXT)", () => {
     return dir;
   }
 
+  function nativeRealPath(file: string): string {
+    return fs.realpathSync.native(file);
+  }
+
   it("finds a .cmd shim for a bare name using PATHEXT", () => {
     const dir = tempPathDir();
     const shim = path.join(dir, "copilot.cmd");
     fs.writeFileSync(shim, "@echo off");
     const env = { PATH: dir, PATHEXT: ".COM;.EXE;.CMD;.PS1" } as NodeJS.ProcessEnv;
-    expect(resolveExecutable("copilot", env)).toBe(shim);
+    expect(resolveExecutable("copilot", env)).toBe(nativeRealPath(shim));
   });
 
   it("finds a .ps1 shim and respects PATHEXT ordering", () => {
@@ -203,7 +207,7 @@ describe("resolveExecutable (PATHEXT)", () => {
     const shim = path.join(dir, "copilot.ps1");
     fs.writeFileSync(shim, "# noop");
     const env = { PATH: dir, PATHEXT: ".EXE;.PS1" } as NodeJS.ProcessEnv;
-    expect(resolveExecutable("copilot", env)).toBe(shim);
+    expect(resolveExecutable("copilot", env)).toBe(nativeRealPath(shim));
   });
 
   it("resolves a name that already carries an extension verbatim", () => {
@@ -211,7 +215,7 @@ describe("resolveExecutable (PATHEXT)", () => {
     const exe = path.join(dir, "wt.exe");
     fs.writeFileSync(exe, "");
     const env = { PATH: dir, PATHEXT: ".EXE" } as NodeJS.ProcessEnv;
-    expect(resolveExecutable("wt.exe", env)).toBe(exe);
+    expect(resolveExecutable("wt.exe", env)).toBe(nativeRealPath(exe));
   });
 
   it("returns undefined for an injected env when the executable is absent", () => {

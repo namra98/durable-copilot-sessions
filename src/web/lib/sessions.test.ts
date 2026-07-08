@@ -3,6 +3,7 @@ import type { SessionView } from "../api/client";
 import {
   applyQuickFilters,
   childrenOf,
+  deriveSessionBuckets,
   displayName,
   groupByRepo,
   groupKeyFor,
@@ -22,6 +23,24 @@ function session(over: Partial<SessionView> = {}): SessionView {
     ...over,
   };
 }
+
+describe("deriveSessionBuckets", () => {
+  it("derives open and live views from one all-sessions result", () => {
+    const primary = session({ id: "primary", role: "primary", livePids: [1] });
+    const child = session({ id: "child", role: "child", livePids: [1] });
+    const stale = session({ id: "stale", liveness: "stale" });
+
+    const buckets = deriveSessionBuckets({
+      sessions: [primary, child, stale],
+      openCount: 1,
+    });
+
+    expect(buckets.open.map((s) => s.id)).toEqual(["primary"]);
+    expect(buckets.live.map((s) => s.id)).toEqual(["primary", "child"]);
+    expect(buckets.all.map((s) => s.id)).toEqual(["primary", "child", "stale"]);
+    expect(buckets.openCount).toBe(1);
+  });
+});
 
 describe("displayName", () => {
   it("prefers title, then name, then the id head", () => {

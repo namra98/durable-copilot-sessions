@@ -70,9 +70,11 @@ import {
 import {
   applyQuickFilters,
   childrenOf,
+  deriveSessionBuckets,
   groupByRepo,
   searchSessions,
   sortSessions,
+  type SessionBuckets,
   type QuickFilter,
   type SortKey,
 } from "./lib/sessions";
@@ -80,14 +82,7 @@ import {
 const AUTO_REFRESH_MS = 15000;
 const SEARCH_DEBOUNCE_MS = 200;
 
-interface SessionData {
-  open: SessionView[];
-  live: SessionView[];
-  all: SessionView[];
-  openCount: number;
-}
-
-const EMPTY_DATA: SessionData = { open: [], live: [], all: [], openCount: 0 };
+const EMPTY_DATA: SessionBuckets = { open: [], live: [], all: [], openCount: 0 };
 
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -120,7 +115,7 @@ export function App() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const lastSelectedRef = useRef<string | null>(null);
 
-  const [data, setData] = useState<SessionData>(EMPTY_DATA);
+  const [data, setData] = useState<SessionBuckets>(EMPTY_DATA);
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [config, setConfig] = useState<AppConfig | null>(null);
   const [version, setVersion] = useState("");
@@ -184,13 +179,11 @@ export function App() {
   }, []);
 
   const loadAll = useCallback(async (): Promise<void> => {
-    const [open, live, all, ws] = await Promise.all([
-      api.listSessions("open"),
-      api.listSessions("live"),
+    const [all, ws] = await Promise.all([
       api.listSessions("all"),
       api.listWorkspaces(),
     ]);
-    setData({ open: open.sessions, live: live.sessions, all: all.sessions, openCount: open.openCount });
+    setData(deriveSessionBuckets(all));
     setWorkspaces(ws);
   }, []);
 
