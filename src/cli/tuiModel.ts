@@ -2,7 +2,7 @@ import type { SessionFilter, SessionListResult, SessionView } from "../core/mana
 import type { MemorySearchHit, Workspace } from "../core/types.js";
 
 export type TuiPane = "sessions" | "workspaces" | "memory";
-export type TuiMode = "normal" | "search" | "save-workspace" | "help";
+export type TuiMode = "normal" | "search" | "save-workspace" | "palette" | "help";
 export type TuiStatusKind = "info" | "success" | "error";
 export type TuiThemeName = "midnight" | "aurora" | "tokyo" | "catppuccin" | "matrix" | "mono";
 
@@ -21,6 +21,7 @@ export interface TuiState {
   sessionIndex: number;
   workspaceIndex: number;
   memoryIndex: number;
+  paletteIndex: number;
   status?: TuiStatus;
 }
 
@@ -48,6 +49,7 @@ export type TuiCommand =
   | { kind: "activate" }
   | { kind: "refresh"; status: TuiStatus; scope: TuiRefreshScope }
   | { kind: "search"; query: string; immediate: boolean; status: TuiStatus }
+  | { kind: "copy"; text: string; label: string }
   | { kind: "snapshot" }
   | { kind: "save-workspace"; name: string }
   | { kind: "quit" };
@@ -59,6 +61,11 @@ export interface TuiInputResult {
 
 export interface TuiInputOptions {
   defaultWorkspaceName: string;
+}
+
+export interface TuiMouseEvent {
+  x: number;
+  y: number;
 }
 
 const FILTER_ORDER: SessionFilter[] = ["open", "live", "all"];
@@ -337,6 +344,245 @@ function previousPane(pane: TuiPane): TuiPane {
   return "workspaces";
 }
 
+function selectedSession(state: TuiState, visible: VisibleTuiData): SessionView | undefined {
+  return visible.sessions[state.sessionIndex];
+}
+
+function selectedWorkspace(state: TuiState, visible: VisibleTuiData): Workspace | undefined {
+  return visible.workspaces[state.workspaceIndex];
+}
+
+function selectedMemory(state: TuiState, visible: VisibleTuiData): MemorySearchHit | undefined {
+  return visible.memoryHits[state.memoryIndex];
+}
+
+function selectedCopyTarget(
+  state: TuiState,
+  data: TuiData,
+  kind: "reference" | "detail",
+): { text: string; label: string } | undefined {
+  const visible = filterVisibleData(data, state.query);
+  if (state.pane === "sessions") {
+    const session = selectedSession(state, visible);
+    if (!session) return undefined;
+    if (kind === "detail") {
+      return { text: session.cwd, label: "session cwd" };
+    }
+    return { text: session.id, label: "session id" };
+  }
+  if (state.pane === "workspaces") {
+    const workspace = selectedWorkspace(state, visible);
+    if (!workspace) return undefined;
+    if (kind === "detail") {
+      return { text: workspace.name, label: "workspace name" };
+    }
+    return { text: workspace.id, label: "workspace id" };
+  }
+  const hit = selectedMemory(state, visible);
+  if (!hit) return undefined;
+  if (kind === "detail") {
+    return { text: hit.snippet ?? hit.memory.content, label: "memory content" };
+  }
+  return { text: hit.memory.sessionId, label: "memory session id" };
+}
+
+function copySelection(state: TuiState, data: TuiData, kind: "reference" | "detail"): TuiInputResult {
+  const target = selectedCopyTarget(state, data, kind);
+  if (!target) {
+    return { state: { ...state, status: { kind: "error", message: "nothing selected to copy" } } };
+  }
+  return {
+    state,
+    command: {
+      kind: "copy",
+      text: target.text,
+      label: target.label,
+    },
+  };
+}
+
+interface PaletteAction {
+  id: string;
+  label: string;
+  description: string;
+  shortcut: string;
+  keywords: string;
+  run: (state: TuiState, data: TuiData, options: TuiInputOptions) => TuiInputResult;
+}
+
+function paletteActionHaystack(action: PaletteAction): string {
+  return `${action.label} ${action.description} ${action.shortcut} ${action.keywords}`.toLowerCase();
+}
+
+function basePaletteState(state: TuiState): TuiState {
+  return { ...state, mode: "normal", input: "", paletteIndex: 0 };
+}
+
+const PALETTE_ACTIONS: PaletteAction[] = [
+  {
+    id: "open-selected",
+    label: "Open selected item",
+    description: "Resume a session, restore a layout, or open a memory source",
+    shortcut: "Enter / o",
+    keywords: "activate resume restore source",
+    run: (state) => ({ state: basePaletteState(state), command: { kind: "activate" } }),
+  },
+  {
+    id: "search",
+    label: "Search sessions, layouts, and memory",
+    description: "Start live text and memory search",
+    shortcut: "/",
+    keywords: "find filter query memory",
+    run: (state) => ({ state: { ...basePaletteState(state), mode: "search", input: state.query } }),
+  },
+  {
+    id: "save-layout",
+    label: "Save current open live layout",
+    description: "Create a workspace from the currently open live terminal layout",
+    shortcut: "w / s",
+    keywords: "workspace layout save",
+    run: (state, _data, options) => ({
+      state: { ...basePaletteState(state), mode: "save-workspace", input: options.defaultWorkspaceName },
+    }),
+  },
+  {
+    id: "snapshot",
+    label: "Take auto-snapshot",
+    description: "Capture a rolling snapshot of the current live layout",
+    shortcut: "n",
+    keywords: "snapshot capture",
+    run: (state) => ({ state: basePaletteState(state), command: { kind: "snapshot" } }),
+  },
+  {
+    id: "refresh",
+    label: "Refresh everything",
+    description: "Force reload sessions, layouts, snapshots, and memory results",
+    shortcut: "r",
+    keywords: "reload discovery",
+    run: (state) => ({
+      state: basePaletteState(state),
+      command: { kind: "refresh", scope: "all", status: { kind: "success", message: "refreshed" } },
+    }),
+  },
+  {
+    id: "cycle-filter",
+    label: "Cycle session filter",
+    description: "Switch between open, live, and all sessions",
+    shortcut: "f",
+    keywords: "open live all",
+    run: (state) => {
+      const filter = nextSessionFilter(state.filter);
+      return {
+        state: { ...basePaletteState(state), filter, sessionIndex: 0 },
+        command: { kind: "refresh", scope: "sessions", status: { kind: "info", message: `filter set to ${filter}` } },
+      };
+    },
+  },
+  {
+    id: "cycle-theme",
+    label: "Cycle theme",
+    description: "Switch between installed color themes",
+    shortcut: "t",
+    keywords: "color style appearance",
+    run: (state) => {
+      const theme = nextTheme(state.theme);
+      return {
+        state: {
+          ...basePaletteState(state),
+          theme,
+          status: { kind: "info", message: `theme set to ${THEMES[theme].label}` },
+        },
+      };
+    },
+  },
+  {
+    id: "sessions-pane",
+    label: "Focus sessions pane",
+    description: "Jump to session rows",
+    shortcut: "palette",
+    keywords: "sessions list",
+    run: (state) => ({ state: { ...basePaletteState(state), pane: "sessions" } }),
+  },
+  {
+    id: "workspaces-pane",
+    label: "Focus layouts pane",
+    description: "Jump to saved layouts and snapshots",
+    shortcut: "palette",
+    keywords: "workspaces layouts snapshots",
+    run: (state) => ({ state: { ...basePaletteState(state), pane: "workspaces" } }),
+  },
+  {
+    id: "memory-pane",
+    label: "Focus memory pane",
+    description: "Jump to memory search results",
+    shortcut: "m",
+    keywords: "recall memories decisions",
+    run: (state) => ({ state: { ...basePaletteState(state), pane: "memory" } }),
+  },
+  {
+    id: "clear-search",
+    label: "Clear search",
+    description: "Reset query and show the unfiltered view",
+    shortcut: "Esc",
+    keywords: "reset filter",
+    run: (state) => ({
+      state: { ...basePaletteState(state), query: "", sessionIndex: 0, workspaceIndex: 0, memoryIndex: 0 },
+      command: { kind: "search", query: "", immediate: true, status: { kind: "info", message: "search cleared" } },
+    }),
+  },
+  {
+    id: "copy-reference",
+    label: "Copy selected reference",
+    description: "Copy the selected session/layout id or memory source session id",
+    shortcut: "c",
+    keywords: "clipboard id reference",
+    run: (state, data) => copySelection(basePaletteState(state), data, "reference"),
+  },
+  {
+    id: "copy-detail",
+    label: "Copy selected detail",
+    description: "Copy cwd, layout name, or memory content",
+    shortcut: "y",
+    keywords: "clipboard path cwd name content",
+    run: (state, data) => copySelection(basePaletteState(state), data, "detail"),
+  },
+  {
+    id: "help",
+    label: "Show help",
+    description: "Open the shortcuts overlay",
+    shortcut: "?",
+    keywords: "shortcuts docs",
+    run: (state) => ({ state: { ...basePaletteState(state), mode: "help" } }),
+  },
+  {
+    id: "quit",
+    label: "Quit TUI",
+    description: "Leave the terminal dashboard",
+    shortcut: "q",
+    keywords: "exit close",
+    run: (state) => ({ state: basePaletteState(state), command: { kind: "quit" } }),
+  },
+];
+
+function visiblePaletteActions(state: TuiState): PaletteAction[] {
+  const query = normalizeQuery(state.input);
+  if (!query) return PALETTE_ACTIONS;
+  return PALETTE_ACTIONS.filter((action) => paletteActionHaystack(action).includes(query));
+}
+
+function movePaletteSelection(state: TuiState, delta: number): TuiState {
+  return { ...state, paletteIndex: clampIndex(state.paletteIndex + delta, visiblePaletteActions(state).length) };
+}
+
+function executePaletteAction(state: TuiState, data: TuiData, options: TuiInputOptions): TuiInputResult {
+  const actions = visiblePaletteActions(state);
+  const action = actions[Math.min(state.paletteIndex, Math.max(actions.length - 1, 0))];
+  if (!action) {
+    return { state: { ...basePaletteState(state), status: { kind: "error", message: "no command selected" } } };
+  }
+  return action.run(state, data, options);
+}
+
 export function handleTuiInput(
   state: TuiState,
   data: TuiData,
@@ -355,7 +601,7 @@ export function handleTuiInput(
   }
 
   if (state.mode !== "normal") {
-    return handleTextInput(state, input);
+    return handleTextInput(state, data, input, options);
   }
 
   if (input === "\u001b[A" || input === "k") {
@@ -400,6 +646,16 @@ export function handleTuiInput(
       },
     };
   }
+  if (input === "\u0010" || input === ":") {
+    return {
+      state: {
+        ...state,
+        mode: "palette",
+        input: "",
+        paletteIndex: 0,
+      },
+    };
+  }
   if (input === "f") {
     const filter = nextSessionFilter(state.filter);
     return {
@@ -432,6 +688,12 @@ export function handleTuiInput(
   if (input === "n") {
     return { state, command: { kind: "snapshot" } };
   }
+  if (input === "c") {
+    return copySelection(state, data, "reference");
+  }
+  if (input === "y") {
+    return copySelection(state, data, "detail");
+  }
   if (ENTER_KEYS.has(input) || input === "o") {
     return { state, command: { kind: "activate" } };
   }
@@ -453,9 +715,18 @@ export function handleTuiInput(
   return { state };
 }
 
-function handleTextInput(state: TuiState, input: string): TuiInputResult {
+function handleTextInput(state: TuiState, data: TuiData, input: string, options: TuiInputOptions): TuiInputResult {
   if (input === "\u001b") {
     return { state: { ...state, mode: "normal", input: "" } };
+  }
+
+  if (state.mode === "palette") {
+    if (input === "\u001b[A") {
+      return { state: movePaletteSelection(state, -1) };
+    }
+    if (input === "\u001b[B") {
+      return { state: movePaletteSelection(state, 1) };
+    }
   }
 
   if (input.includes("\u001b")) {
@@ -463,6 +734,9 @@ function handleTextInput(state: TuiState, input: string): TuiInputResult {
   }
 
   if (ENTER_KEYS.has(input)) {
+    if (state.mode === "palette") {
+      return executePaletteAction(state, data, options);
+    }
     if (state.mode === "search") {
       return {
         state: {
@@ -520,6 +794,9 @@ function handleTextInput(state: TuiState, input: string): TuiInputResult {
 }
 
 function textInputResult(state: TuiState, input: string): TuiInputResult {
+  if (state.mode === "palette") {
+    return { state: { ...state, input, paletteIndex: 0 } };
+  }
   if (state.mode !== "search") {
     return { state: { ...state, input } };
   }
@@ -583,6 +860,50 @@ function moveSelectionTo(state: TuiState, data: TuiData, target: "start" | "end"
     ...state,
     workspaceIndex: target === "start" ? 0 : Math.max(visible.workspaces.length - 1, 0),
   };
+}
+
+export function handleTuiMouse(
+  state: TuiState,
+  data: TuiData,
+  event: TuiMouseEvent,
+  options: Pick<TuiRenderOptions, "columns" | "rows">,
+): TuiInputResult {
+  if (state.mode !== "normal") {
+    return { state };
+  }
+  const width = Math.max(1, options.columns);
+  const height = Math.max(0, options.rows);
+  if (width < 40 || height < 10) {
+    return { state };
+  }
+  const wide = width >= 96 && height >= 16;
+  const headerHeight = wide ? 3 : 2;
+  const footerHeight = 2;
+  const bodyHeight = Math.max(3, height - headerHeight - footerHeight);
+  const detailWidth = wide ? Math.max(32, Math.floor(width * 0.38)) : 0;
+  const listWidth = wide ? Math.max(40, width - detailWidth - 1) : width;
+  const bodyTop = headerHeight + 1;
+  const rowTop = bodyTop + 1;
+  const rowCount = Math.max(1, bodyHeight - 2);
+  if (event.x < 1 || event.x > listWidth || event.y < rowTop || event.y >= rowTop + rowCount) {
+    return { state };
+  }
+
+  const visible = filterVisibleData(data, state.query);
+  const selectedIndex =
+    state.pane === "sessions" ? state.sessionIndex : state.pane === "workspaces" ? state.workspaceIndex : state.memoryIndex;
+  const first = Math.max(0, selectedIndex - rowCount + 1);
+  const index = first + (event.y - rowTop);
+  if (state.pane === "sessions") {
+    if (index >= visible.sessions.length) return { state };
+    return { state: { ...state, sessionIndex: index } };
+  }
+  if (state.pane === "memory") {
+    if (index >= visible.memoryHits.length) return { state };
+    return { state: { ...state, memoryIndex: index } };
+  }
+  if (index >= visible.workspaces.length) return { state };
+  return { state: { ...state, workspaceIndex: index } };
 }
 
 export function formatSessionRow(session: SessionView, selected: boolean, width: number): string {
@@ -664,8 +985,9 @@ function combineColumns(left: string[], right: string[], gap: string): string[] 
 function helpLine(mode: TuiMode): string {
   if (mode === "search") return "Search: type to filter live, Enter close, Esc close";
   if (mode === "save-workspace") return "Save workspace: type name, Enter save, Esc cancel";
+  if (mode === "palette") return "Command palette: type to filter, ↑/↓ choose, Enter run, Esc cancel";
   if (mode === "help") return "Help: press Esc, ?, or q to return";
-  return "↑/↓ move | ←/→ pane | / search text+memory | m memory | t theme | ? help | Enter/o open | w/s save | q quit";
+  return "↑/↓ move | mouse click rows | Ctrl+P palette | / search | c/y copy | Enter/o open | w/s save | q quit";
 }
 
 function renderStatus(status: TuiStatus | undefined, width: number, theme: TuiTheme, color: boolean): string {
@@ -723,6 +1045,12 @@ function sessionDetails(session: SessionView | undefined): string[] {
     `Live PIDs: ${session.livePids.length > 0 ? session.livePids.join(", ") : "(none)"}`,
     session.summary ? `Summary: ${session.summary}` : "Summary: (none)",
     session.childCount ? `Children: ${session.childCount}` : "Children: 0",
+    "",
+    "Actions:",
+    `${ICONS.open} Enter/o open session`,
+    "c copy session id",
+    "y copy cwd",
+    "Ctrl+P command palette",
   ];
 }
 
@@ -736,6 +1064,12 @@ function workspaceDetails(workspace: Workspace | undefined): string[] {
     `Updated: ${workspace.updatedAt.slice(0, 19).replace("T", " ")}`,
     workspace.description ? `Description: ${workspace.description}` : "Description: (none)",
     `ID: ${workspace.id}`,
+    "",
+    "Actions:",
+    `${ICONS.open} Enter/o restore layout`,
+    "c copy layout id",
+    "y copy layout name",
+    "w/s save current open live layout",
   ];
 }
 
@@ -750,6 +1084,8 @@ function memoryDetails(hit: MemorySearchHit | undefined): string[] {
     `Updated: ${new Date(memory.updatedAt).toISOString().slice(0, 19).replace("T", " ")}`,
     hit.snippet ? `Snippet: ${singleLine(hit.snippet)}` : `Content: ${singleLine(memory.content) ?? "(empty)"}`,
     `${ICONS.open} Enter/o opens the source session`,
+    "c copy source session id",
+    "y copy memory content",
   ];
 }
 
@@ -804,8 +1140,11 @@ function renderHelpBody(theme: TuiTheme, color: boolean): string[] {
     "  PgUp/PgDn         Jump through the list",
     "  g / G             First / last item",
     "  ←/→ or h/l/Tab    Switch sessions/layouts/memory",
+    "  Mouse click       Select visible row",
     paint("Actions", theme.accent, color),
+    "  Ctrl+P or :       Open command palette",
     "  Enter or o        Open session, layout, or memory source",
+    "  c / y             Copy selected id/reference or detail",
     "  w or s            Save current open live layout",
     "  n                 Take an auto-snapshot",
     "  r                 Refresh",
@@ -814,6 +1153,23 @@ function renderHelpBody(theme: TuiTheme, color: boolean): string[] {
     "  t                 Cycle theme",
     "  ?                 Toggle help",
   ];
+}
+
+function renderPaletteBody(state: TuiState, theme: TuiTheme, color: boolean, width: number): string[] {
+  const actions = visiblePaletteActions(state);
+  if (actions.length === 0) {
+    return [
+      paint("No commands match.", theme.error, color),
+      "Try open, save, search, copy, theme, filter, or memory.",
+    ];
+  }
+  const selected = Math.min(state.paletteIndex, Math.max(actions.length - 1, 0));
+  return actions.map((action, index) => {
+    const marker = index === selected ? ICONS.selected : " ";
+    const line = `${marker} ${action.label}  ${action.shortcut}  ${action.description}`;
+    const fitted = fitText(line, width);
+    return index === selected ? paint(fitted, theme.selected, color) : fitted;
+  });
 }
 
 function renderRows(
@@ -857,6 +1213,8 @@ function renderFooter(state: TuiState, width: number, theme: TuiTheme, color: bo
   if (state.mode === "search" || state.mode === "save-workspace") {
     const icon = state.mode === "search" ? ICONS.search : ICONS.save;
     lines.push(styledLine(`${icon} ${state.input}_`, width, theme.accent, color));
+  } else if (state.mode === "palette") {
+    lines.push(styledLine(`${ICONS.app} command ${state.input}_`, width, theme.accent, color));
   }
   return lines;
 }
@@ -880,6 +1238,8 @@ function renderWideDashboard(
   const body =
     state.mode === "help"
       ? box("Shortcuts", renderHelpBody(theme, color), width, bodyHeight, theme, color, true)
+      : state.mode === "palette"
+        ? box("Command Palette", renderPaletteBody(state, theme, color, width - 2), width, bodyHeight, theme, color, true)
       : combineColumns(
           box(
             `${paneIcon(state.pane)} ${paneTitle(state.pane)}`,
@@ -912,6 +1272,8 @@ function renderCompactDashboard(
   const body =
     state.mode === "help"
       ? box("Shortcuts", renderHelpBody(theme, color), width, bodyHeight, theme, color, true)
+      : state.mode === "palette"
+        ? box("Command Palette", renderPaletteBody(state, theme, color, width - 2), width, bodyHeight, theme, color, true)
       : box(
           `${paneIcon(state.pane)} ${paneTitle(state.pane)}`,
           renderRows(state, visible, width - 2, rowCount, theme, color),

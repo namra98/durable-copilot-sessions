@@ -248,12 +248,16 @@ Keyboard shortcuts:
 | `up` / `down` or `j` / `k` | Move the current selection. |
 | `PgUp` / `PgDn`, `g` / `G` | Jump through the current list. |
 | `left` / `right`, `h` / `l`, or `Tab` | Switch between sessions, workspaces, and memory. |
+| Mouse click | Select a visible row in the active list. |
+| `Ctrl+P` or `:` | Open the command palette for fuzzy action search. |
 | `m` | Jump to the memory search pane. |
 | `f` | Cycle session filters: open, live, all. |
 | `/` | Live-search sessions, workspaces, and local session memory as you type. |
 | `t` | Cycle built-in themes: Midnight, Aurora, Tokyo, Catppuccin, Matrix, Mono. |
 | `?` | Toggle the shortcut help overlay. |
 | `Enter` or `o` | Resume the selected session, restore the selected workspace/snapshot, or open a memory result's source session. |
+| `c` | Copy the selected session, workspace, or memory source reference via OSC 52 clipboard. |
+| `y` | Copy the selected detail, such as cwd, workspace name, or memory text. |
 | `w` or `s` | Save the current open live layout as a named workspace. |
 | `n` | Take a rolling auto-snapshot. |
 | `r` | Refresh discovery and workspace lists. |

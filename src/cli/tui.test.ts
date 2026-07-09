@@ -1,6 +1,6 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it, vi } from "vitest";
-import type { SessionListResult } from "../core/manager.js";
+import type { SessionListResult, SessionView } from "../core/manager.js";
 import type { LaunchResult, MemorySearchHit, ResumeOptions, Workspace } from "../core/types.js";
 import { runTui, type TuiInput, type TuiIo, type TuiManager, type TuiOutput } from "./tui.js";
 
@@ -36,6 +36,7 @@ class FakeManager implements TuiManager {
   readonly resumedSessions: string[] = [];
   workspaceReads = 0;
   snapshotReads = 0;
+  sessionResult: SessionListResult = { sessions: [], openCount: 0 };
   failList: boolean;
 
   constructor(failList = false) {
@@ -47,7 +48,7 @@ class FakeManager implements TuiManager {
       throw new Error("discovery failed");
     }
     this.filters.push(filter);
-    return { sessions: [], openCount: 0 };
+    return this.sessionResult;
   }
 
   listWorkspaces(): Workspace[] {
@@ -109,6 +110,19 @@ function workspace(name: string): Workspace {
   };
 }
 
+function sessionView(id: string, name: string): SessionView {
+  return {
+    id,
+    name,
+    cwd: `C:\\repo\\${name}`,
+    cwdExists: true,
+    liveness: "live",
+    livePids: [123],
+    topLevel: true,
+    managed: false,
+  };
+}
+
 interface FakeIo extends TuiIo {
   stdin: FakeInput;
   stdout: FakeOutput;
@@ -139,6 +153,10 @@ describe("runTui", () => {
 
     expect(io.stdin.isRaw).toBe(false);
     expect(io.stdout.chunks.join("")).toContain("\x1b[?1049l");
+    expect(io.stdout.chunks.join("")).toContain("\x1b[?1000h");
+    expect(io.stdout.chunks.join("")).toContain("\x1b[?1006h");
+    expect(io.stdout.chunks.join("")).toContain("\x1b[?1000l");
+    expect(io.stdout.chunks.join("")).toContain("\x1b[?1006l");
   });
 
   it("restores terminal mode if startup refresh fails", async () => {
@@ -275,5 +293,34 @@ describe("runTui", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("selects rows with mouse clicks before opening them", async () => {
+    const io = fakeIo();
+    const manager = new FakeManager();
+    const first = sessionView("session-1", "one");
+    const second = sessionView("session-2", "two");
+    manager.sessionResult = { sessions: [first, second], openCount: 2 };
+    const promise = runTui(manager, io);
+
+    io.stdin.emit("data", "\x1b[<0;3;6M");
+    io.stdin.emit("data", "\r");
+    io.stdin.emit("data", "\u0003");
+    await promise;
+
+    expect(manager.resumedSessions).toContain("session-2");
+  });
+
+  it("copies selected references via OSC 52", async () => {
+    const io = fakeIo();
+    const manager = new FakeManager();
+    manager.sessionResult = { sessions: [sessionView("copy-session", "copy")], openCount: 1 };
+    const promise = runTui(manager, io);
+
+    io.stdin.emit("data", "c");
+    io.stdin.emit("data", "\u0003");
+    await promise;
+
+    expect(io.stdout.chunks.join("")).toContain(`\x1b]52;c;${Buffer.from("copy-session", "utf8").toString("base64")}\x07`);
   });
 });

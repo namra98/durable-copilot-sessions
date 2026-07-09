@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import process from "node:process";
 import { SessionManager } from "../core/manager.js";
 import type { LaunchResult, MemorySearchHit, Workspace } from "../core/types.js";
@@ -5,11 +6,13 @@ import {
   clampStateSelection,
   filterVisibleData,
   handleTuiInput,
+  handleTuiMouse,
   primeVisibleDataCache,
   renderTui,
   sessionTitle,
   type TuiData,
   type TuiCommand,
+  type TuiMouseEvent,
   type TuiRefreshScope,
   type TuiState,
   type TuiStatus,
@@ -69,6 +72,7 @@ function defaultState(): TuiState {
     sessionIndex: 0,
     workspaceIndex: 0,
     memoryIndex: 0,
+    paletteIndex: 0,
     status: { kind: "info", message: "ready" },
   };
 }
@@ -107,6 +111,8 @@ const DISCOVERY_CACHE_TTL_MS = 1500;
 const RESIZE_RENDER_DEBOUNCE_MS = 16;
 const MEMORY_SEARCH_DEBOUNCE_MS = 150;
 const MEMORY_PREWARM_DELAY_MS = 500;
+const ENTER_TUI_SCREEN = "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?1006h";
+const EXIT_TUI_SCREEN = "\x1b[?1006l\x1b[?1000l\x1b[?25h\x1b[?1049l";
 
 class TuiApp {
   private readonly manager: TuiManager;
@@ -153,7 +159,7 @@ class TuiApp {
     this.stdout.on("resize", this.onResize);
     process.once("SIGINT", this.onSigint);
     try {
-      this.stdout.write("\x1b[?1049h\x1b[?25l");
+      this.stdout.write(ENTER_TUI_SCREEN);
       this.refresh({ kind: "info", message: "loaded sessions and workspaces" }, "all", true);
       this.render();
       this.scheduleMemoryPrewarm();
@@ -177,7 +183,7 @@ class TuiApp {
     this.clearMemoryPrewarmTimer();
     this.clearRenderTimer();
     this.stdin.setRawMode(this.originalRawMode);
-    this.stdout.write("\x1b[?25h\x1b[?1049l");
+    this.stdout.write(EXIT_TUI_SCREEN);
     this.resolveStop?.();
   }
 
@@ -208,9 +214,15 @@ class TuiApp {
   }
 
   private async handleInput(input: string): Promise<void> {
-    const result = handleTuiInput(this.state, this.data, input, {
-      defaultWorkspaceName: defaultWorkspaceName(),
-    });
+    const mouse = parseMouseEvent(input);
+    const result = mouse
+      ? handleTuiMouse(this.state, this.data, mouse, {
+          columns: this.stdout.columns ?? 100,
+          rows: this.stdout.rows ?? 30,
+        })
+      : handleTuiInput(this.state, this.data, input, {
+          defaultWorkspaceName: defaultWorkspaceName(),
+        });
     this.state = result.state;
     if (result.command && this.runCommand(result.command)) {
       return;
@@ -233,6 +245,8 @@ class TuiApp {
       this.refresh({ kind: "success", message: `snapshot saved: ${snapshot.name}` }, "layouts", true);
     } else if (command.kind === "activate") {
       this.activateSelection();
+    } else if (command.kind === "copy") {
+      this.copyToClipboard(command.text, command.label);
     } else {
       this.saveWorkspace(command.name);
     }
@@ -399,6 +413,15 @@ class TuiApp {
     this.lastFrameLines = lines;
   }
 
+  private copyToClipboard(text: string, label: string): void {
+    if (!text) {
+      this.state = { ...this.state, status: { kind: "error", message: `${label} is empty` } };
+      return;
+    }
+    this.stdout.write(`\x1b]52;c;${Buffer.from(text, "utf8").toString("base64")}\x07`);
+    this.state = { ...this.state, status: { kind: "success", message: `copied ${label}` } };
+  }
+
   private saveWorkspace(name: string): void {
     if (!name) {
       this.state = {
@@ -429,4 +452,23 @@ function padFrameLines(frame: string, rows: number): string[] {
     lines.push("");
   }
   return lines;
+}
+
+function parseMouseEvent(input: string): TuiMouseEvent | undefined {
+  if (!input.startsWith("\x1b[<") || !input.endsWith("M")) {
+    return undefined;
+  }
+  const fields = input.slice(3, -1).split(";");
+  if (fields.length !== 3) {
+    return undefined;
+  }
+  const [buttonText, xText, yText] = fields;
+  const button = Number(buttonText);
+  const x = Number(xText);
+  const y = Number(yText);
+  if (button !== 0 || !Number.isInteger(x) || !Number.isInteger(y)) return undefined;
+  return {
+    x,
+    y,
+  };
 }

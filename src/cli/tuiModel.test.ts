@@ -7,6 +7,7 @@ import {
   formatSessionRow,
   formatMemoryRow,
   handleTuiInput,
+  handleTuiMouse,
   nextSessionFilter,
   nextTheme,
   renderTui,
@@ -100,6 +101,7 @@ function state(overrides: Partial<TuiState> = {}): TuiState {
     sessionIndex: 0,
     workspaceIndex: 0,
     memoryIndex: 0,
+    paletteIndex: 0,
     ...overrides,
   };
 }
@@ -282,15 +284,55 @@ describe("tuiModel", () => {
     expect(save.state.mode).toBe("save-workspace");
   });
 
+  it("opens and executes command palette actions", () => {
+    const opened = handleTuiInput(state(), data(), "\u0010", { defaultWorkspaceName: "layout" });
+    expect(opened.state.mode).toBe("palette");
+
+    const typed = handleTuiInput(opened.state, data(), "theme", { defaultWorkspaceName: "layout" });
+    expect(typed.state.input).toBe("theme");
+
+    const executed = handleTuiInput(typed.state, data(), "\r", { defaultWorkspaceName: "layout" });
+    expect(executed.state.mode).toBe("normal");
+    expect(executed.state.theme).toBe("aurora");
+    expect(executed.state.status?.message).toBe("theme set to Aurora");
+  });
+
+  it("copies contextual references and details", () => {
+    const copiedId = handleTuiInput(state(), data(), "c", { defaultWorkspaceName: "layout" });
+    expect(copiedId.command).toEqual({
+      kind: "copy",
+      text: session.id,
+      label: "session id",
+    });
+
+    const copiedDetail = handleTuiInput(state({ pane: "memory" }), data(), "y", { defaultWorkspaceName: "layout" });
+    expect(copiedDetail.command).toEqual({
+      kind: "copy",
+      text: memoryHit.snippet,
+      label: "memory content",
+    });
+  });
+
   it("renders the interactive help overlay", () => {
     const screen = renderTui(state({ mode: "help" }), data(), {
       columns: 100,
       rows: 20,
     });
     expect(screen).toContain("Shortcuts");
-    expect(screen).toContain("Cycle theme");
+    expect(screen).toContain("Open command palette");
     expect(screen).toContain("Save current open live layout");
     expect(screen).toContain("memory source");
+    expect(screen).toContain("Copy selected");
+  });
+
+  it("renders the command palette", () => {
+    const screen = renderTui(state({ mode: "palette", input: "copy" }), data(), {
+      columns: 100,
+      rows: 20,
+    });
+    expect(screen).toContain("Command Palette");
+    expect(screen).toContain("Copy selected reference");
+    expect(screen).toContain("command copy_");
   });
 
   it("renders memory search results and details", () => {
@@ -309,5 +351,16 @@ describe("tuiModel", () => {
     });
     expect(result.state.mode).toBe("search");
     expect(result.state.input).toBe("repo");
+  });
+
+  it("selects visible rows with mouse clicks", () => {
+    const sessions = manySessions(5);
+    const result = handleTuiMouse(
+      state(),
+      { sessions: { sessions, openCount: 5 }, workspaces: [], memoryHits: [] },
+      { x: 3, y: 6 },
+      { columns: 100, rows: 20 },
+    );
+    expect(result.state.sessionIndex).toBe(1);
   });
 });
