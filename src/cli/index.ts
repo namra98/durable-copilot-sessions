@@ -455,7 +455,7 @@ function buildProgram(): Command {
     .action(() => {
       const s = tasksStatus();
       console.log(`Snapshot task:      ${s.snapshot ? "installed" : "not installed"}`);
-      console.log(`Logon restore task: ${s.logon ? "installed" : "not installed"}`);
+      console.log(`Logon restore:      ${s.logon ? "installed" : "not installed"}`);
     });
 
   program

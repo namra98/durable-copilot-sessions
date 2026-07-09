@@ -174,7 +174,9 @@ dcs install-tasks --interval 5
 ```
 
 Now your layout is captured every few minutes, and after the next forced restart you'll be prompted
-to restore it.
+to restore it. The installer does not require admin rights: the logon task is scoped to the current
+Windows user, and if Windows still denies it, `dcs` installs a current-user Startup-folder fallback
+for the restore prompt instead.
 
 ---
 
@@ -193,9 +195,9 @@ All commands are subcommands of `dcs`.
 | `dcs ui` | Start the local API server and open the web dashboard in the browser. |
 | `dcs serve [--port <n>]` | Start the API server **without** opening a browser. |
 | `dcs new <title> [--cwd <dir>] [--color <c>] [--prompt <p>]` | Launch a brand‑new managed Copilot session in a Windows Terminal tab. |
-| `dcs install-tasks [--interval <minutes>] [--no-hidden]` | Register the periodic snapshot + logon restore Scheduled Tasks. Runs hidden (no console flash) by default; `--no-hidden` shows a window. |
-| `dcs uninstall-tasks` | Remove the Scheduled Tasks. |
-| `dcs tasks-status` | Report whether the snapshot + logon-restore tasks are installed. |
+| `dcs install-tasks [--interval <minutes>] [--no-hidden]` | Register the periodic snapshot task + current-user logon restore prompt. Runs hidden (no console flash) by default; `--no-hidden` shows a window. Falls back to the current user's Startup folder if Windows denies the logon Scheduled Task. |
+| `dcs uninstall-tasks` | Remove the Scheduled Tasks and any Startup-folder fallback. |
+| `dcs tasks-status` | Report whether snapshot + logon restore are installed. |
 | `dcs restore-last [--window new\|current]` | Restore the most recent auto-snapshot. |
 | `dcs resume-repo <repository> [--window ...]` | Resume every open session matching a repository as one grouped window. |
 | `dcs fork <sessionId>` | Fork a session (records lineage for the Graph view). |

@@ -103,11 +103,12 @@ and prunes old snapshots to `maxAutoSnapshots`.
 
 ### Scheduled durability
 
-`dcs install-tasks` registers two Windows Scheduled Tasks:
+`dcs install-tasks` registers Windows automation:
 
 - a **periodic** task running `dcs snapshot` every `snapshotIntervalMinutes`, and
-- a **logon** task running `dcs restore-prompt`, which — if a recent snapshot exists — opens the UI to
-  offer a one-click restore.
+- a **logon** restore prompt running `dcs restore-prompt`, which — if a recent snapshot exists —
+  opens the UI to offer a one-click restore. This is a Scheduled Task when Windows allows it, with a
+  current-user Startup-folder fallback when the ONLOGON trigger is denied.
 
 This is what closes the loop after a forced restart.
 

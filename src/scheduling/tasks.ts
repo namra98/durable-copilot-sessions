@@ -10,6 +10,12 @@ import {
   type TaskExec,
   type TaskExecResult,
 } from "./schtasks.js";
+import {
+  installStartupRestore,
+  startupRestoreInstalled,
+  STARTUP_RESTORE_SCRIPT_NAME,
+  uninstallStartupRestore,
+} from "./startup.js";
 
 /**
  * High-level install/uninstall/status operations for the two Windows Scheduled
@@ -23,6 +29,13 @@ import {
 
 const LOG_SCOPE = "scheduling";
 
+function defaultRunAsUser(): string | undefined {
+  const username = process.env.USERNAME;
+  if (!username || username.length === 0) return undefined;
+  const domain = process.env.USERDOMAIN;
+  return domain && domain.length > 0 ? `${domain}\\${username}` : username;
+}
+
 /** Options controlling which commands the scheduled tasks run. */
 export interface InstallOptions {
   /** Fully-resolved command line run by the periodic snapshot task. */
@@ -33,6 +46,10 @@ export interface InstallOptions {
   intervalMinutes: number;
   /** Executor seam; defaults to the real `schtasks.exe` runner. */
   exec?: TaskExec;
+  /** User principal for the ONLOGON task; defaults to the current Windows user. */
+  runAsUser?: string;
+  /** Startup folder override, exposed for hermetic tests. */
+  startupDir?: string;
 }
 
 /** Extract a human-readable failure detail from an executor result. */
@@ -47,6 +64,12 @@ function isNotFound(result: TaskExecResult): boolean {
   return /cannot find|does not exist|the system cannot find the (file|path)/i.test(
     text,
   );
+}
+
+/** Heuristic: did task creation fail because Windows denied this user's ACL? */
+function isAccessDenied(result: TaskExecResult): boolean {
+  const text = `${result.stderr ?? ""} ${result.error?.message ?? ""}`;
+  return /access is denied/i.test(text);
 }
 
 /**
@@ -84,13 +107,41 @@ export function installTasks(opts: InstallOptions): {
   }
 
   const logonResult = exec.run(
-    buildCreateLogonArgs({ command: opts.restorePromptCommand }),
+    buildCreateLogonArgs({
+      command: opts.restorePromptCommand,
+      runAsUser: opts.runAsUser ?? defaultRunAsUser(),
+    }),
   );
-  const logon = logonResult.status === 0;
+  let logon = logonResult.status === 0;
   if (logon) {
     const msg = `Registered scheduled task ${LOGON_TASK_NAME} (restore prompt at logon).`;
     messages.push(msg);
     log.info(msg, { scope: LOG_SCOPE, taskName: LOGON_TASK_NAME });
+  } else if (isAccessDenied(logonResult)) {
+    try {
+      const file = installStartupRestore(opts.restorePromptCommand, opts.startupDir);
+      logon = true;
+      const msg =
+        `Windows denied ${LOGON_TASK_NAME}; installed current-user Startup fallback ` +
+        `${STARTUP_RESTORE_SCRIPT_NAME} instead.`;
+      messages.push(msg);
+      log.warn(msg, {
+        scope: LOG_SCOPE,
+        taskName: LOGON_TASK_NAME,
+        fallbackPath: file,
+        status: logonResult.status,
+      });
+    } catch (err) {
+      const msg =
+        `Failed to register ${LOGON_TASK_NAME}: ${failureDetail(logonResult)}; ` +
+        `Startup fallback also failed: ${(err as Error).message}`;
+      messages.push(msg);
+      log.error(msg, {
+        scope: LOG_SCOPE,
+        taskName: LOGON_TASK_NAME,
+        status: logonResult.status,
+      });
+    }
   } else {
     const msg = `Failed to register ${LOGON_TASK_NAME}: ${failureDetail(logonResult)}`;
     messages.push(msg);
@@ -108,7 +159,7 @@ export function installTasks(opts: InstallOptions): {
  * Remove both scheduled tasks. A missing task is treated as success so the
  * operation is idempotent. Returns human-readable messages for each task.
  */
-export function uninstallTasks(opts?: { exec?: TaskExec }): {
+export function uninstallTasks(opts?: { exec?: TaskExec; startupDir?: string }): {
   messages: string[];
 } {
   const exec = opts?.exec ?? defaultExec;
@@ -131,6 +182,20 @@ export function uninstallTasks(opts?: { exec?: TaskExec }): {
     }
   }
 
+  try {
+    if (uninstallStartupRestore(opts?.startupDir)) {
+      const msg = `Removed Startup fallback ${STARTUP_RESTORE_SCRIPT_NAME}.`;
+      messages.push(msg);
+      log.info(msg, { scope: LOG_SCOPE, taskName: LOGON_TASK_NAME });
+    }
+  } catch (err) {
+    const msg = `Failed to remove Startup fallback ${STARTUP_RESTORE_SCRIPT_NAME}: ${
+      (err as Error).message
+    }`;
+    messages.push(msg);
+    log.error(msg, { scope: LOG_SCOPE, taskName: LOGON_TASK_NAME });
+  }
+
   return { messages };
 }
 
@@ -138,12 +203,14 @@ export function uninstallTasks(opts?: { exec?: TaskExec }): {
  * Report whether each scheduled task currently exists, based on whether a
  * `schtasks /Query` for it exits successfully.
  */
-export function tasksStatus(opts?: { exec?: TaskExec }): {
+export function tasksStatus(opts?: { exec?: TaskExec; startupDir?: string }): {
   snapshot: boolean;
   logon: boolean;
 } {
   const exec = opts?.exec ?? defaultExec;
   const snapshot = exec.run(buildQueryArgs(SNAPSHOT_TASK_NAME)).status === 0;
-  const logon = exec.run(buildQueryArgs(LOGON_TASK_NAME)).status === 0;
+  const logon =
+    exec.run(buildQueryArgs(LOGON_TASK_NAME)).status === 0 ||
+    startupRestoreInstalled(opts?.startupDir);
   return { snapshot, logon };
 }
