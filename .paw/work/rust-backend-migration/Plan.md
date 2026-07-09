@@ -33,7 +33,8 @@ Use an incremental Rust migration: first freeze contracts and behavior with gold
 - Contract freeze and Rust workspace scaffold are complete. The checked-in contract is `contracts\backend-api.v1.json`; golden fixtures live under `tests\fixtures\contracts\`.
 - Rust core parity is implemented for contract models, session discovery, open-session graph annotation, registry/config/snapshot/workspace export/diff, Windows Terminal launch planning, memory indexing/search, and stats rollups.
 - Rust HTTP API compatibility is implemented with Axum and covered by fixture-backed tests for session/graph ordering, response envelopes, config/logs/memory/workspace wrappers, fork creation, and new-session dry-run launch planning.
-- Remaining migration work is Rust CLI/scheduling parity, validation/benchmark smoke gates, then cutover packaging/docs.
+- Rust CLI/scheduling parity is implemented in `dcs-rs`, including the existing command surface, doctor checks, Windows Scheduled Tasks argument builders, hidden VBScript launchers, and fixture-backed CLI smoke tests.
+- Remaining migration work is validation/benchmark smoke gates, then cutover packaging/docs.
 
 ## Staged work items
 

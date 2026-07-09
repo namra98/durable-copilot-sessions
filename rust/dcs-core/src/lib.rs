@@ -1,6 +1,7 @@
 pub mod branch;
 pub mod contract;
 pub mod discovery;
+pub mod doctor;
 pub mod graph;
 pub mod launch;
 pub mod logs;
@@ -9,6 +10,7 @@ pub mod memory;
 pub mod model;
 pub mod paths;
 pub mod registry;
+pub mod scheduling;
 pub mod stats;
 pub mod transcript;
 
