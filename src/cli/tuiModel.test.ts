@@ -208,14 +208,16 @@ describe("tuiModel", () => {
     expect(result.command).toBeUndefined();
   });
 
-  it("updates the active query and emits refresh while typing search text", () => {
+  it("updates the active query and emits lightweight search while typing text", () => {
     const typed = handleTuiInput(state({ mode: "search", input: "" }), data(), "streamliner", {
       defaultWorkspaceName: "layout",
     });
     expect(typed.state.input).toBe("streamliner");
     expect(typed.state.query).toBe("streamliner");
     expect(typed.command).toEqual({
-      kind: "refresh",
+      kind: "search",
+      query: "streamliner",
+      immediate: false,
       status: { kind: "info", message: "searching: streamliner" },
     });
 
@@ -224,7 +226,9 @@ describe("tuiModel", () => {
     });
     expect(backspaced.state.query).toBe("streamline");
     expect(backspaced.command).toEqual({
-      kind: "refresh",
+      kind: "search",
+      query: "streamline",
+      immediate: false,
       status: { kind: "info", message: "searching: streamline" },
     });
   });

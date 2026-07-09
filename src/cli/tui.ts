@@ -110,6 +110,7 @@ class TuiApp {
   private stopped: boolean;
   private originalRawMode: boolean;
   private resolveStop?: () => void;
+  private memorySearchTimer?: ReturnType<typeof setTimeout>;
   private readonly onData: (chunk: Buffer | string) => void;
   private readonly onResize: () => void;
   private readonly onSigint: () => void;
@@ -158,6 +159,7 @@ class TuiApp {
     this.stdin.off("data", this.onData);
     this.stdout.off("resize", this.onResize);
     process.off("SIGINT", this.onSigint);
+    this.clearMemorySearchTimer();
     this.stdin.setRawMode(this.originalRawMode);
     this.stdout.write("\x1b[?25h\x1b[?1049l");
     this.resolveStop?.();
@@ -204,6 +206,8 @@ class TuiApp {
     }
     if (command.kind === "refresh") {
       this.refresh(command.status);
+    } else if (command.kind === "search") {
+      this.search(command.query, command.status, command.immediate);
     } else if (command.kind === "snapshot") {
       const snapshot = this.manager.snapshot();
       this.refresh({ kind: "success", message: `snapshot saved: ${snapshot.name}` });
@@ -251,6 +255,47 @@ class TuiApp {
     const query = this.state.query.trim();
     if (!query) return [];
     return this.manager.searchMemory(query, { limit: 12 });
+  }
+
+  private search(query: string, status: TuiStatus, immediate: boolean): void {
+    this.state = {
+      ...clampStateSelection({ ...this.state, status }, filterVisibleData(this.data, this.state.query)),
+    };
+    this.clearMemorySearchTimer();
+    if (!query.trim()) {
+      this.data = { ...this.data, memoryHits: [] };
+      this.state = clampStateSelection(this.state, filterVisibleData(this.data, this.state.query));
+      return;
+    }
+    if (immediate) {
+      this.refreshMemorySearch(query, false);
+      return;
+    }
+    this.memorySearchTimer = setTimeout(() => {
+      this.memorySearchTimer = undefined;
+      this.refreshMemorySearch(query);
+    }, 150);
+  }
+
+  private refreshMemorySearch(query: string, render = true): void {
+    if (this.stopped || query !== this.state.query.trim()) return;
+    try {
+      this.data = {
+        ...this.data,
+        memoryHits: this.manager.searchMemory(query, { limit: 12 }),
+      };
+      this.state = clampStateSelection(this.state, filterVisibleData(this.data, this.state.query));
+      if (render) this.render();
+    } catch (error) {
+      this.state = { ...this.state, status: errorStatus(error) };
+      if (render) this.render();
+    }
+  }
+
+  private clearMemorySearchTimer(): void {
+    if (!this.memorySearchTimer) return;
+    clearTimeout(this.memorySearchTimer);
+    this.memorySearchTimer = undefined;
   }
 
   private saveWorkspace(name: string): void {

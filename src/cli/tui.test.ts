@@ -190,4 +190,20 @@ describe("runTui", () => {
     expect(output).not.toContain("\x1b[2J");
     expect(output).toContain("\x1b[H");
   });
+
+  it("filters live search locally without refreshing discovery on each keystroke", async () => {
+    const io = fakeIo();
+    const manager = new FakeManager();
+    const promise = runTui(manager, io);
+
+    io.stdin.emit("data", "/");
+    for (const character of "streamliner") {
+      io.stdin.emit("data", character);
+    }
+    expect(manager.filters).toEqual(["open"]);
+    expect(manager.memoryQueries).toEqual([]);
+
+    io.stdin.emit("data", "\u0003");
+    await promise;
+  });
 });

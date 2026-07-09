@@ -45,6 +45,7 @@ export interface VisibleTuiData {
 export type TuiCommand =
   | { kind: "activate" }
   | { kind: "refresh"; status: TuiStatus }
+  | { kind: "search"; query: string; immediate: boolean; status: TuiStatus }
   | { kind: "snapshot" }
   | { kind: "save-workspace"; name: string }
   | { kind: "quit" };
@@ -379,7 +380,12 @@ export function handleTuiInput(
     if (input === "\u001b" && state.query) {
       return {
         state: { ...state, query: "", sessionIndex: 0, workspaceIndex: 0, memoryIndex: 0 },
-        command: { kind: "refresh", status: { kind: "info", message: "search cleared" } },
+        command: {
+          kind: "search",
+          query: "",
+          immediate: true,
+          status: { kind: "info", message: "search cleared" },
+        },
       };
     }
     return { state, command: { kind: "quit" } };
@@ -409,7 +415,12 @@ function handleTextInput(state: TuiState, input: string): TuiInputResult {
           workspaceIndex: 0,
           memoryIndex: 0,
         },
-        command: { kind: "refresh", status: { kind: "info", message: "search applied" } },
+        command: {
+          kind: "search",
+          query: state.input.trim(),
+          immediate: true,
+          status: { kind: "info", message: "search applied" },
+        },
       };
     }
 
@@ -464,7 +475,9 @@ function textInputResult(state: TuiState, input: string): TuiInputResult {
       memoryIndex: 0,
     },
     command: {
-      kind: "refresh",
+      kind: "search",
+      query,
+      immediate: false,
       status: {
         kind: "info",
         message: query ? `searching: ${query}` : "search cleared",
