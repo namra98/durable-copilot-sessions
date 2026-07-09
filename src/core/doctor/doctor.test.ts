@@ -16,7 +16,12 @@ function passingDeps(): DoctorDeps {
     sessionStateDir: "C:\\copilot\\session-state",
     writeProbe: () => true,
     readProbe: () => true,
-    tasksStatus: () => ({ snapshot: true, logon: true }),
+    tasksStatus: () => ({
+      snapshot: true,
+      logon: true,
+      logonTask: true,
+      startupFallback: false,
+    }),
   };
 }
 
@@ -106,11 +111,31 @@ describe("runDoctor", () => {
   it("flags missing scheduled tasks with remediation", () => {
     const result = runDoctor({
       ...passingDeps(),
-      tasksStatus: () => ({ snapshot: true, logon: false }),
+      tasksStatus: () => ({
+        snapshot: true,
+        logon: false,
+        logonTask: false,
+        startupFallback: false,
+      }),
     });
-    const tasks = result.checks.find((c) => c.name === "Scheduled tasks");
+    const tasks = result.checks.find((c) => c.name === "Logon restore automation");
     expect(tasks?.ok).toBe(false);
     expect(tasks?.detail).toMatch(/install-tasks/);
+  });
+
+  it("passes when logon restore uses the Startup fallback", () => {
+    const result = runDoctor({
+      ...passingDeps(),
+      tasksStatus: () => ({
+        snapshot: true,
+        logon: true,
+        logonTask: false,
+        startupFallback: true,
+      }),
+    });
+    const tasks = result.checks.find((c) => c.name === "Logon restore automation");
+    expect(tasks?.ok).toBe(true);
+    expect(tasks?.detail).toMatch(/Startup fallback installed/);
   });
 
   it("handles a throwing tasksStatus gracefully", () => {
@@ -120,7 +145,7 @@ describe("runDoctor", () => {
         throw new Error("schtasks blew up");
       },
     });
-    const tasks = result.checks.find((c) => c.name === "Scheduled tasks");
+    const tasks = result.checks.find((c) => c.name === "Logon restore automation");
     expect(tasks?.ok).toBe(false);
     expect(tasks?.detail).toMatch(/schtasks blew up/);
   });

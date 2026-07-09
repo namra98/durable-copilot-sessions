@@ -1,3 +1,4 @@
+import os from "node:os";
 import { log } from "../core/logger.js";
 import {
   buildCreateLogonArgs,
@@ -29,10 +30,26 @@ import {
 
 const LOG_SCOPE = "scheduling";
 
-function defaultRunAsUser(): string | undefined {
-  const username = process.env.USERNAME;
+interface UserInfoLike {
+  username: string;
+}
+
+export function defaultRunAsUser(
+  env: NodeJS.ProcessEnv = process.env,
+  userInfo: () => UserInfoLike = () => os.userInfo({ encoding: "utf8" }),
+): string | undefined {
+  let username: string | undefined;
+  try {
+    username = userInfo().username;
+  } catch {
+    username = undefined;
+  }
+  if (!username || username.length === 0) {
+    username = env.USERNAME;
+  }
   if (!username || username.length === 0) return undefined;
-  const domain = process.env.USERDOMAIN;
+  if (username.includes("\\") || username.includes("@")) return username;
+  const domain = env.USERDOMAIN;
   return domain && domain.length > 0 ? `${domain}\\${username}` : username;
 }
 
@@ -50,6 +67,17 @@ export interface InstallOptions {
   runAsUser?: string;
   /** Startup folder override, exposed for hermetic tests. */
   startupDir?: string;
+}
+
+export interface TasksStatus {
+  /** Periodic snapshot Scheduled Task is registered. */
+  snapshot: boolean;
+  /** Any logon restore mechanism is installed. */
+  logon: boolean;
+  /** ONLOGON restore Scheduled Task is registered. */
+  logonTask: boolean;
+  /** Current-user Startup-folder fallback is installed. */
+  startupFallback: boolean;
 }
 
 /** Extract a human-readable failure detail from an executor result. */
@@ -106,10 +134,19 @@ export function installTasks(opts: InstallOptions): {
     });
   }
 
+  const runAsUser = opts.runAsUser ?? defaultRunAsUser();
+  if (!runAsUser) {
+    const msg =
+      `Failed to register ${LOGON_TASK_NAME}: could not determine current Windows user for /RU.`;
+    messages.push(msg);
+    log.error(msg, { scope: LOG_SCOPE, taskName: LOGON_TASK_NAME });
+    return { snapshot, logon: false, messages };
+  }
+
   const logonResult = exec.run(
     buildCreateLogonArgs({
       command: opts.restorePromptCommand,
-      runAsUser: opts.runAsUser ?? defaultRunAsUser(),
+      runAsUser,
     }),
   );
   let logon = logonResult.status === 0;
@@ -117,6 +154,19 @@ export function installTasks(opts: InstallOptions): {
     const msg = `Registered scheduled task ${LOGON_TASK_NAME} (restore prompt at logon).`;
     messages.push(msg);
     log.info(msg, { scope: LOG_SCOPE, taskName: LOGON_TASK_NAME });
+    try {
+      if (uninstallStartupRestore(opts.startupDir)) {
+        const cleanupMsg = `Removed stale Startup fallback ${STARTUP_RESTORE_SCRIPT_NAME}.`;
+        messages.push(cleanupMsg);
+        log.info(cleanupMsg, { scope: LOG_SCOPE, taskName: LOGON_TASK_NAME });
+      }
+    } catch (err) {
+      const cleanupMsg = `Failed to remove stale Startup fallback ${STARTUP_RESTORE_SCRIPT_NAME}: ${
+        (err as Error).message
+      }`;
+      messages.push(cleanupMsg);
+      log.error(cleanupMsg, { scope: LOG_SCOPE, taskName: LOGON_TASK_NAME });
+    }
   } else if (isAccessDenied(logonResult)) {
     try {
       const file = installStartupRestore(opts.restorePromptCommand, opts.startupDir);
@@ -203,14 +253,10 @@ export function uninstallTasks(opts?: { exec?: TaskExec; startupDir?: string }):
  * Report whether each scheduled task currently exists, based on whether a
  * `schtasks /Query` for it exits successfully.
  */
-export function tasksStatus(opts?: { exec?: TaskExec; startupDir?: string }): {
-  snapshot: boolean;
-  logon: boolean;
-} {
+export function tasksStatus(opts?: { exec?: TaskExec; startupDir?: string }): TasksStatus {
   const exec = opts?.exec ?? defaultExec;
   const snapshot = exec.run(buildQueryArgs(SNAPSHOT_TASK_NAME)).status === 0;
-  const logon =
-    exec.run(buildQueryArgs(LOGON_TASK_NAME)).status === 0 ||
-    startupRestoreInstalled(opts?.startupDir);
-  return { snapshot, logon };
+  const logonTask = exec.run(buildQueryArgs(LOGON_TASK_NAME)).status === 0;
+  const startupFallback = startupRestoreInstalled(opts?.startupDir);
+  return { snapshot, logon: logonTask || startupFallback, logonTask, startupFallback };
 }

@@ -27,10 +27,12 @@ schtasks /Query /TN DurableCopilotSessions-LogonRestore
 schtasks /Query /TN DurableCopilotSessions-Snapshot /V /FO LIST   # full detail
 ```
 
-A non-zero exit code means the task is not registered. If
-`DurableCopilotSessions-LogonRestore` is missing but `dcs tasks-status` reports
-logon restore as installed, Windows denied the Scheduled Task and `dcs` installed
-the Startup-folder fallback.
+A non-zero exit code means the task is not registered. `dcs tasks-status` reports
+the logon Scheduled Task and Startup fallback separately; if the task is missing
+but the fallback is installed, Windows denied the ONLOGON Scheduled Task and
+`dcs` installed the current-user Startup-folder fallback instead. A later
+successful `dcs install-tasks` removes that fallback so the restore prompt is not
+shown twice.
 
 ## Task Scheduler GUI
 

@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { resolveExecutable } from "../launch/wt.js";
 import { copilotSessionStateDir, ensureStateDirs, stateDir } from "../paths.js";
 import { tasksStatus } from "../../scheduling/index.js";
+import type { TasksStatus } from "../../scheduling/index.js";
 
 /**
  * Environment health checks for durable-copilot-sessions. Each check is a small
@@ -38,7 +39,7 @@ export interface DoctorDeps {
   /** Returns true if `dir` is readable. */
   readProbe?: (dir: string) => boolean;
   /** Scheduled-task installation status. */
-  tasksStatus?: () => { snapshot: boolean; logon: boolean };
+  tasksStatus?: () => TasksStatus;
 }
 
 const MIN_NODE_MAJOR = 20;
@@ -180,22 +181,29 @@ function checkSessionState(dir: string, readProbe: (dir: string) => boolean): Do
   };
 }
 
-function checkTasks(statusFn: () => { snapshot: boolean; logon: boolean }): DoctorCheck {
+function logonStatusDetail(status: TasksStatus): string {
+  if (status.logonTask) return "task installed";
+  if (status.startupFallback) return "Startup fallback installed";
+  return "missing";
+}
+
+function checkTasks(statusFn: () => TasksStatus): DoctorCheck {
   try {
     const status = statusFn();
     const ok = status.snapshot && status.logon;
+    const logonDetail = logonStatusDetail(status);
     return {
-      name: "Scheduled tasks",
+      name: "Logon restore automation",
       ok,
       detail: ok
-        ? "snapshot + logon tasks installed."
+        ? `snapshot task installed; logon restore ${logonDetail}.`
         : `snapshot: ${status.snapshot ? "installed" : "missing"}, logon: ${
-            status.logon ? "installed" : "missing"
+            logonDetail
           } — run \`dcs install-tasks\`.`,
     };
   } catch (err) {
     return {
-      name: "Scheduled tasks",
+      name: "Logon restore automation",
       ok: false,
       detail: `could not query scheduled tasks: ${errorMessage(err)}`,
     };

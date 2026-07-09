@@ -10,6 +10,9 @@ export function defaultStartupDir(): string {
   const appData = process.env.APPDATA;
   const roaming =
     appData && appData.length > 0 ? appData : path.join(os.homedir(), "AppData", "Roaming");
+  if (!path.isAbsolute(roaming)) {
+    throw new Error(`Could not resolve an absolute APPDATA path for Startup fallback: ${roaming}`);
+  }
   return path.join(roaming, "Microsoft", "Windows", "Start Menu", "Programs", "Startup");
 }
 
@@ -23,7 +26,11 @@ export function installStartupRestore(command: string, dir: string = defaultStar
   const file = startupRestoreScriptPath(dir);
   const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
   const escaped = command.replace(/"/g, '""');
-  const script = `CreateObject("WScript.Shell").Run "${escaped}", 0, False\r\n`;
+  const hiddenWindowStyle = 0;
+  const waitForCompletion = "False";
+  const script =
+    `CreateObject("WScript.Shell").Run "${escaped}", ` +
+    `${hiddenWindowStyle}, ${waitForCompletion}\r\n`;
   fs.writeFileSync(tmp, script, "utf8");
   fs.renameSync(tmp, file);
   return file;

@@ -59,7 +59,7 @@ and scheduling — on top.
 - **`cli`** — the `dcs` command set (`list`, `resume`, `save`, `restore`, `snapshot`,
   `restore-prompt`, `ui`, `serve`, `new`, `install-tasks`, `uninstall-tasks`).
 - **`scheduling`** — installs/removes Windows Scheduled Tasks: a periodic `dcs snapshot` and a logon
-  `dcs restore-prompt`.
+  `dcs restore-prompt`, with a current-user Startup fallback when ONLOGON registration is denied.
 
 ## Data flow
 
