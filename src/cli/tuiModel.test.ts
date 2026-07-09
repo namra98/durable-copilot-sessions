@@ -30,6 +30,14 @@ const session: SessionView = {
   childCount: 2,
 };
 
+const memoryOnlySession: SessionView = {
+  ...session,
+  id: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+  name: "Unrelated title",
+  summary: "No matching metadata here",
+  repository: "namra98/other",
+};
+
 const workspace: Workspace = {
   id: "workspace-1",
   name: "morning-layout",
@@ -51,7 +59,7 @@ const workspace: Workspace = {
 const memoryHit: MemorySearchHit = {
   memory: {
     id: "memory-1",
-    sessionId: "bbbbbbbb-cccc-dddd-eeee-ffffffffffff",
+    sessionId: memoryOnlySession.id,
     kind: "decision",
     title: "Use terminal UI",
     content: "Decision: add memory-aware search to the TUI dashboard.",
@@ -67,7 +75,7 @@ const memoryHit: MemorySearchHit = {
 
 function data(): TuiData {
   return {
-    sessions: { sessions: [session], openCount: 1 },
+    sessions: { sessions: [session, memoryOnlySession], openCount: 1 },
     workspaces: [workspace],
     memoryHits: [memoryHit],
   };
@@ -119,9 +127,12 @@ describe("tuiModel", () => {
   });
 
   it("filters sessions and workspaces by query", () => {
-    expect(filterVisibleData(data(), "durable").sessions).toHaveLength(1);
+    expect(filterVisibleData(data(), "Dashboard work").sessions).toHaveLength(1);
     expect(filterVisibleData(data(), "morning").workspaces).toHaveLength(1);
     expect(filterVisibleData(data(), "memory-aware").memoryHits).toHaveLength(1);
+    expect(filterVisibleData(data(), "memory-aware").sessions.map((item) => item.id)).toEqual([
+      memoryOnlySession.id,
+    ]);
     expect(filterVisibleData(data(), "missing").sessions).toHaveLength(0);
   });
 
@@ -195,6 +206,27 @@ describe("tuiModel", () => {
     );
     expect(result.state.input).toBe("repo");
     expect(result.command).toBeUndefined();
+  });
+
+  it("updates the active query and emits refresh while typing search text", () => {
+    const typed = handleTuiInput(state({ mode: "search", input: "" }), data(), "streamliner", {
+      defaultWorkspaceName: "layout",
+    });
+    expect(typed.state.input).toBe("streamliner");
+    expect(typed.state.query).toBe("streamliner");
+    expect(typed.command).toEqual({
+      kind: "refresh",
+      status: { kind: "info", message: "searching: streamliner" },
+    });
+
+    const backspaced = handleTuiInput(typed.state, data(), "\u007f", {
+      defaultWorkspaceName: "layout",
+    });
+    expect(backspaced.state.query).toBe("streamline");
+    expect(backspaced.command).toEqual({
+      kind: "refresh",
+      status: { kind: "info", message: "searching: streamline" },
+    });
   });
 
   it("emits commands for key-driven actions", () => {

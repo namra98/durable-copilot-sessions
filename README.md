@@ -250,7 +250,7 @@ Keyboard shortcuts:
 | `left` / `right`, `h` / `l`, or `Tab` | Switch between sessions, workspaces, and memory. |
 | `m` | Jump to the memory search pane. |
 | `f` | Cycle session filters: open, live, all. |
-| `/` | Search sessions, workspaces, and local session memory. |
+| `/` | Live-search sessions, workspaces, and local session memory as you type. |
 | `t` | Cycle built-in themes: Midnight, Aurora, Tokyo, Catppuccin, Matrix, Mono. |
 | `?` | Toggle the shortcut help overlay. |
 | `Enter` or `o` | Resume the selected session, restore the selected workspace/snapshot, or open a memory result's source session. |

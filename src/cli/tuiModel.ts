@@ -214,8 +214,25 @@ function singleLine(value: string | undefined): string | undefined {
 }
 
 export function filterVisibleData(data: TuiData, query: string): VisibleTuiData {
+  const memoryHits = data.memoryHits.filter((hit) =>
+    matchesQuery(
+      [
+        hit.memory.id,
+        hit.memory.sessionId,
+        hit.memory.kind,
+        hit.memory.title,
+        hit.memory.content,
+        hit.memory.repository,
+        hit.memory.branch,
+        hit.snippet,
+      ],
+      query,
+    ),
+  );
+  const memorySessionIds = new Set(memoryHits.map((hit) => hit.memory.sessionId));
   return {
     sessions: data.sessions.sessions.filter((session) =>
+      memorySessionIds.has(session.id) ||
       matchesQuery(
         [
           session.id,
@@ -224,6 +241,10 @@ export function filterVisibleData(data: TuiData, query: string): VisibleTuiData 
           session.repository,
           session.branch,
           session.cwd,
+          session.clientName,
+          session.branchNote,
+          session.group,
+          ...(session.tags ?? []),
         ],
         query,
       ),
@@ -231,21 +252,7 @@ export function filterVisibleData(data: TuiData, query: string): VisibleTuiData 
     workspaces: data.workspaces.filter((workspace) =>
       matchesQuery([workspace.id, workspace.name, workspace.description, workspace.source], query),
     ),
-    memoryHits: data.memoryHits.filter((hit) =>
-      matchesQuery(
-        [
-          hit.memory.id,
-          hit.memory.sessionId,
-          hit.memory.kind,
-          hit.memory.title,
-          hit.memory.content,
-          hit.memory.repository,
-          hit.memory.branch,
-          hit.snippet,
-        ],
-        query,
-      ),
-    ),
+    memoryHits,
   };
 }
 
@@ -429,7 +436,8 @@ function handleTextInput(state: TuiState, input: string): TuiInputResult {
   }
 
   if (BACKSPACE_KEYS.has(input)) {
-    return { state: { ...state, input: state.input.slice(0, -1) } };
+    const nextInput = state.input.slice(0, -1);
+    return textInputResult(state, nextInput);
   }
 
   let nextInput = state.input;
@@ -438,7 +446,31 @@ function handleTextInput(state: TuiState, input: string): TuiInputResult {
       nextInput += char;
     }
   }
-  return { state: { ...state, input: nextInput } };
+  return textInputResult(state, nextInput);
+}
+
+function textInputResult(state: TuiState, input: string): TuiInputResult {
+  if (state.mode !== "search") {
+    return { state: { ...state, input } };
+  }
+  const query = input.trim();
+  return {
+    state: {
+      ...state,
+      input,
+      query,
+      sessionIndex: 0,
+      workspaceIndex: 0,
+      memoryIndex: 0,
+    },
+    command: {
+      kind: "refresh",
+      status: {
+        kind: "info",
+        message: query ? `searching: ${query}` : "search cleared",
+      },
+    },
+  };
 }
 
 function moveSelection(state: TuiState, data: TuiData, delta: number): TuiState {
@@ -558,7 +590,7 @@ function combineColumns(left: string[], right: string[], gap: string): string[] 
 }
 
 function helpLine(mode: TuiMode): string {
-  if (mode === "search") return "Search: type text, Enter apply, Esc cancel";
+  if (mode === "search") return "Search: type to filter live, Enter close, Esc close";
   if (mode === "save-workspace") return "Save workspace: type name, Enter save, Esc cancel";
   if (mode === "help") return "Help: press Esc, ?, or q to return";
   return "↑/↓ move | ←/→ pane | / search text+memory | m memory | t theme | ? help | Enter/o open | w/s save | q quit";
