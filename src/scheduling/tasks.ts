@@ -19,10 +19,10 @@ import {
 } from "./startup.js";
 
 /**
- * High-level install/uninstall/status operations for the two Windows Scheduled
- * Tasks that keep a Copilot session layout durable across reboots:
- *   - a periodic auto-snapshot task, and
- *   - a logon restore-prompt task.
+ * High-level install/uninstall/status operations for Windows logon durability:
+ *   - a periodic auto-snapshot Scheduled Task, and
+ *   - logon restore-prompt automation via an ONLOGON Scheduled Task or, when
+ *     Windows denies that trigger, a current-user Startup-folder fallback.
  *
  * Every operation routes through a {@link TaskExec} so tests can inject a fake
  * executor; the real {@link defaultExec} is used when none is provided.
@@ -80,15 +80,23 @@ export interface TasksStatus {
   startupFallback: boolean;
 }
 
+/** Extract all text emitted by a `schtasks.exe` invocation. */
+function resultText(result: TaskExecResult): string {
+  return [result.stderr, result.stdout, result.error?.message]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part && part.length > 0))
+    .join(" ");
+}
+
 /** Extract a human-readable failure detail from an executor result. */
 function failureDetail(result: TaskExecResult): string {
-  const detail = (result.stderr ?? result.error?.message ?? "").trim();
+  const detail = resultText(result);
   return detail.length > 0 ? detail : "unknown error";
 }
 
 /** Heuristic: did a delete/query fail only because the task does not exist? */
 function isNotFound(result: TaskExecResult): boolean {
-  const text = `${result.stderr ?? ""} ${result.error?.message ?? ""}`;
+  const text = resultText(result);
   return /cannot find|does not exist|the system cannot find the (file|path)/i.test(
     text,
   );
@@ -96,14 +104,14 @@ function isNotFound(result: TaskExecResult): boolean {
 
 /** Heuristic: did task creation fail because Windows denied this user's ACL? */
 function isAccessDenied(result: TaskExecResult): boolean {
-  const text = `${result.stderr ?? ""} ${result.error?.message ?? ""}`;
+  const text = resultText(result);
   return /access is denied/i.test(text);
 }
 
 /**
- * Register both scheduled tasks. Returns per-task success flags plus a list of
- * human-readable messages (including stderr for any failure) and logs each
- * outcome.
+ * Register the periodic snapshot task and logon restore automation. `logon`
+ * means either the ONLOGON task was registered or the Startup fallback was
+ * installed; messages include scheduler output for failures.
  */
 export function installTasks(opts: InstallOptions): {
   snapshot: boolean;
@@ -173,7 +181,7 @@ export function installTasks(opts: InstallOptions): {
       logon = true;
       const msg =
         `Windows denied ${LOGON_TASK_NAME}; installed current-user Startup fallback ` +
-        `${STARTUP_RESTORE_SCRIPT_NAME} instead.`;
+        `${STARTUP_RESTORE_SCRIPT_NAME} at ${file} instead.`;
       messages.push(msg);
       log.warn(msg, {
         scope: LOG_SCOPE,
@@ -206,8 +214,8 @@ export function installTasks(opts: InstallOptions): {
 }
 
 /**
- * Remove both scheduled tasks. A missing task is treated as success so the
- * operation is idempotent. Returns human-readable messages for each task.
+ * Remove the Scheduled Tasks and any Startup fallback. Missing entries are
+ * treated as success so the operation is idempotent.
  */
 export function uninstallTasks(opts?: { exec?: TaskExec; startupDir?: string }): {
   messages: string[];
@@ -250,8 +258,8 @@ export function uninstallTasks(opts?: { exec?: TaskExec; startupDir?: string }):
 }
 
 /**
- * Report whether each scheduled task currently exists, based on whether a
- * `schtasks /Query` for it exits successfully.
+ * Report Scheduled Task presence and Startup fallback presence separately, plus
+ * overall logon restore readiness.
  */
 export function tasksStatus(opts?: { exec?: TaskExec; startupDir?: string }): TasksStatus {
   const exec = opts?.exec ?? defaultExec;

@@ -275,6 +275,27 @@ describe("installTasks", () => {
     expect(calls[1]).toContain("/RU");
     expect(fs.existsSync(startupRestoreScriptPath(startupDir))).toBe(true);
     expect(result.messages.some((m) => m.includes("Startup fallback"))).toBe(true);
+    expect(result.messages.some((m) => m.includes(startupRestoreScriptPath(startupDir)))).toBe(true);
+  });
+
+  it("falls back when Access Denied is emitted on stdout", () => {
+    const startupDir = tempDir();
+    const { exec } = sequenceExec([
+      { status: 0 },
+      { status: 1, stdout: "ERROR: Access is denied." },
+    ]);
+
+    const result = installTasks({
+      snapshotCommand: "X snapshot",
+      restorePromptCommand: "X restore-prompt",
+      intervalMinutes: 5,
+      exec,
+      runAsUser: "DOMAIN\\namra",
+      startupDir,
+    });
+
+    expect(result).toMatchObject({ snapshot: true, logon: true });
+    expect(fs.existsSync(startupRestoreScriptPath(startupDir))).toBe(true);
   });
 
   it("does not install the Startup fallback for non-permission logon failures", () => {
@@ -368,6 +389,19 @@ describe("installTasks", () => {
     });
   });
 
+  it("does not count a directory at the fallback path as logon restore installed", () => {
+    const startupDir = tempDir();
+    fs.mkdirSync(startupRestoreScriptPath(startupDir));
+    const { exec } = recordingExec({ status: 1, stderr: "not found" });
+
+    expect(tasksStatus({ exec, startupDir })).toEqual({
+      snapshot: false,
+      logon: false,
+      logonTask: false,
+      startupFallback: false,
+    });
+  });
+
   it("reports the ONLOGON task separately when it exists without fallback", () => {
     const startupDir = tempDir();
     const { exec } = sequenceExec([{ status: 1 }, { status: 0 }]);
@@ -392,6 +426,17 @@ describe("installTasks", () => {
 
     expect(fs.existsSync(startupRestoreScriptPath(startupDir))).toBe(false);
     expect(result.messages.some((m) => m.includes("Removed Startup fallback"))).toBe(true);
+  });
+
+  it("treats stdout-only missing-task output as idempotent uninstall success", () => {
+    const { exec } = recordingExec({
+      status: 1,
+      stdout: "ERROR: The system cannot find the file specified.",
+    });
+
+    const result = uninstallTasks({ exec, startupDir: tempDir() });
+
+    expect(result.messages.filter((m) => m.includes("was not present"))).toHaveLength(2);
   });
 
   it("reports scheduled-task delete failures during uninstall", () => {

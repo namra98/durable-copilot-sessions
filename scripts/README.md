@@ -4,8 +4,8 @@
 survives reboots. `dcs uninstall-tasks` removes it. Scheduled Tasks are created
 at the `LIMITED` run level (no elevation) and run as the current user. The logon
 task is scoped to the current Windows user. If Windows still denies the logon
-trigger, `dcs` falls back to the current user's Startup folder for the restore
-prompt instead of requiring admin rights.
+trigger, `dcs` falls back to the current user's Windows Startup known folder for
+the restore prompt instead of requiring admin rights.
 
 | Task name                            | Trigger              | Runs                          |
 | ------------------------------------ | -------------------- | ----------------------------- |
@@ -30,9 +30,9 @@ schtasks /Query /TN DurableCopilotSessions-Snapshot /V /FO LIST   # full detail
 A non-zero exit code means the task is not registered. `dcs tasks-status` reports
 the logon Scheduled Task and Startup fallback separately; if the task is missing
 but the fallback is installed, Windows denied the ONLOGON Scheduled Task and
-`dcs` installed the current-user Startup-folder fallback instead. A later
-successful `dcs install-tasks` removes that fallback so the restore prompt is not
-shown twice.
+`dcs` installed the current-user Startup-folder fallback instead. The install
+output includes the exact fallback path. A later successful `dcs install-tasks`
+removes that fallback so the restore prompt is not shown twice.
 
 ## Task Scheduler GUI
 
@@ -42,5 +42,6 @@ above. Select one to see its **Triggers** (At log on / minute interval) and
 **Actions** (the program + arguments shown in the table). You can run, disable,
 or delete a task from there; deleting via the GUI is equivalent to
 `dcs uninstall-tasks`. If the logon restore prompt used the Startup fallback,
-you'll find `DurableCopilotSessions-LogonRestore.vbs` in
-`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup`.
+you'll find `DurableCopilotSessions-LogonRestore.vbs` in the current user's
+Windows Startup known folder, typically
+`%USERPROFILE%\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup`.
