@@ -29,7 +29,7 @@ npm link | Out-Null
 
 if ($WithTasks) {
   Write-Host "==> Registering Scheduled Tasks (auto-snapshot + logon restore)..." -ForegroundColor Cyan
-  dcs install-tasks
+  node (Join-Path $root "dist\cli\rust-bin.js") install-tasks
 }
 
 Write-Host ""
