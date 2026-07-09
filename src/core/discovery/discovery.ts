@@ -335,6 +335,10 @@ export function enrichSummaries(
   if (sessions.length === 0 || !fs.existsSync(sessionStoreDb)) {
     return;
   }
+  const ids = sessions.map((session) => session.id).filter((id) => id.length > 0);
+  if (ids.length === 0) {
+    return;
+  }
 
   let DatabaseSync: SqliteDatabaseCtor | undefined;
   try {
@@ -353,14 +357,18 @@ export function enrichSummaries(
   let db: SqliteDatabase | undefined;
   try {
     db = suppressSqliteExperimentalWarning(() => new Ctor(sessionStoreDb, { readOnly: true }));
-    const rows = db.prepare("SELECT id, summary FROM sessions").all() as Array<{
-      id?: unknown;
-      summary?: unknown;
-    }>;
     const summaryById = new Map<string, string>();
-    for (const row of rows) {
-      if (typeof row.id === "string" && typeof row.summary === "string" && row.summary.length > 0) {
-        summaryById.set(row.id, row.summary);
+    for (let index = 0; index < ids.length; index += 500) {
+      const batch = ids.slice(index, index + 500);
+      const placeholders = batch.map(() => "?").join(", ");
+      const rows = db.prepare(`SELECT id, summary FROM sessions WHERE id IN (${placeholders})`).all(...batch) as Array<{
+        id?: unknown;
+        summary?: unknown;
+      }>;
+      for (const row of rows) {
+        if (typeof row.id === "string" && typeof row.summary === "string" && row.summary.length > 0) {
+          summaryById.set(row.id, row.summary);
+        }
       }
     }
     for (const session of sessions) {

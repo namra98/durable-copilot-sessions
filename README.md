@@ -58,6 +58,7 @@ reboots, forced updates, and crashes**.
 - 🎨 **Color & title fidelity** for sessions managed through the tool; sensible auto‑assigned colors
   and repository‑based window grouping for everything else.
 - 🌐 **Local web dashboard** (React + Vite) backed by a small Express API — no cloud, no telemetry.
+- 🖥️ **Terminal TUI** (`dcs tui`) for an interactive dashboard directly in your terminal.
 - 🧰 **`dcs` CLI** for everything the UI does, scriptable and CI‑friendly.
 - 📦 **Zero native dependencies.** Pure TypeScript; optional SQLite enrichment uses Node's built‑in
   `node:sqlite` behind a best‑effort guard.
@@ -153,6 +154,12 @@ During development you can run the API and Vite dev server together with hot rel
 npm run dev         # api on :4517, dashboard on :4516
 ```
 
+Prefer to stay in the terminal? Open the same core workflows as a keyboard-driven TUI:
+
+```bash
+dcs tui            # sessions + workspaces without opening the browser
+```
+
 **3. Resume a session** in a fresh Windows Terminal tab:
 
 ```bash
@@ -193,6 +200,7 @@ All commands are subcommands of `dcs`.
 | `dcs snapshot` | Take a rolling auto‑snapshot of the current layout (used by the Scheduled Task). |
 | `dcs restore-prompt` | On logon, if a recent snapshot exists, prompt and open the UI to restore it. |
 | `dcs ui` | Start the local API server and open the web dashboard in the browser. |
+| `dcs tui` | Open the interactive terminal dashboard for sessions, workspaces, save/restore, and snapshots. |
 | `dcs serve [--port <n>]` | Start the API server **without** opening a browser. |
 | `dcs new <title> [--cwd <dir>] [--color <c>] [--prompt <p>]` | Launch a brand‑new managed Copilot session in a Windows Terminal tab. |
 | `dcs install-tasks [--interval <minutes>] [--no-hidden]` | Register the periodic snapshot task + current-user logon restore prompt. Runs hidden (no console flash) by default; `--no-hidden` shows a window. Falls back to the current user's Startup folder if Windows denies the logon Scheduled Task. |
@@ -227,17 +235,43 @@ All commands are subcommands of `dcs`.
 In production the dashboard is served by the Express API. In development, Vite serves it on
 `:4516` and proxies `/api` to the Express server on `:4517`.
 
+## Terminal TUI
+
+`dcs tui` opens a zero-native-dependency terminal dashboard for the same day-to-day actions when you
+do not want to launch the browser. It includes polished ANSI themes (Midnight, Aurora, Tokyo,
+Catppuccin, Matrix, Mono), Unicode status icons, a split-pane detail view, searchable sessions /
+layouts / memory, and an in-terminal help overlay while sharing the same discovery, registry,
+snapshot, memory, and restore behavior as the CLI and web dashboard.
+
+Keyboard shortcuts:
+
+| Key | Action |
+| --- | --- |
+| `up` / `down` or `j` / `k` | Move the current selection. |
+| `PgUp` / `PgDn`, `g` / `G` | Jump through the current list. |
+| `left` / `right`, `h` / `l`, or `Tab` | Switch between sessions, workspaces, and memory. |
+| `m` | Jump to the memory search pane. |
+| `f` | Cycle session filters: open, live, all. |
+| `/` | Live-search sessions, workspaces, and local session memory as you type. |
+| `t` | Cycle built-in themes: Midnight, Aurora, Tokyo, Catppuccin, Matrix, Mono. |
+| `?` | Toggle the shortcut help overlay. |
+| `Enter` or `o` | Resume the selected session, restore the selected workspace/snapshot, or open a memory result's source session. |
+| `w` or `s` | Save the current open live layout as a named workspace. |
+| `n` | Take a rolling auto-snapshot. |
+| `r` | Refresh discovery and workspace lists. |
+| `q` | Quit. |
+
 ---
 
 ## Architecture
 
-`dcs` is a single TypeScript codebase organized into a shared core with four delivery layers (CLI,
+`dcs` is a single TypeScript codebase organized into a shared core with four delivery layers (CLI/TUI,
 server, web, scheduling) on top.
 
 ```mermaid
 flowchart TB
     web["Web UI · React + Vite<br/>session list · one-click resume · save/restore"]
-    cli["CLI · dcs"]
+    cli["CLI + TUI · dcs<br/>terminal workflows"]
     api["Local API server · Express<br/>(/api, default :4517)"]
 
     web -->|REST| api
@@ -264,7 +298,7 @@ flowchart TB
 | `core/snapshot` | Capture the current live layout into a `Workspace`, group tabs into windows, restore them, and manage rolling auto‑snapshots with retention. |
 | `server` | Express API that exposes sessions, workspaces, resume, snapshot, restore, and config. |
 | `web` | React dashboard that talks to the API. |
-| `cli` | The `dcs` command set. |
+| `cli` | The `dcs` command set, including the browser launcher (`ui`) and terminal dashboard (`tui`). |
 | `scheduling` | Install/remove Windows Scheduled Tasks for periodic snapshots and the logon restore prompt. |
 
 See [`docs/design/overview.md`](docs/design/overview.md) for a deeper walkthrough and the on‑disk
@@ -459,7 +493,7 @@ src/
 │   └── snapshot/ # color assignment + window grouping
 ├── server/       # Express API (routes under /api)
 ├── web/          # React + Vite dashboard
-├── cli/          # the `dcs` command set
+├── cli/          # the `dcs` command set + terminal TUI
 └── scheduling/   # Windows Scheduled Task install/remove
 ```
 

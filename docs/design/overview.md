@@ -15,8 +15,8 @@ choices, see the [Architecture Decision Records](decisions/).
 
 ## Layered architecture
 
-`dcs` is one TypeScript codebase with a shared **core** and four delivery layers — CLI, server, web,
-and scheduling — on top.
+`dcs` is one TypeScript codebase with a shared **core** and four delivery layers — CLI/TUI, server,
+web, and scheduling — on top.
 
 ```
               ┌─────────────── Web UI (React + Vite) ───────────────┐
@@ -24,7 +24,7 @@ and scheduling — on top.
               └──────────────────────┬──────────────────────────────┘
                                      │ REST (/api, default :4517)
               ┌──────────────────────▼──────────────────────────────┐
-   CLI (dcs) ─┤              Local API server (Express)              │
+CLI/TUI (dcs)┤              Local API server (Express)              │
               └──────────────────────┬──────────────────────────────┘
                                      │
      ┌───────────────┬───────────────┼────────────────┬─────────────┐
@@ -57,7 +57,9 @@ and scheduling — on top.
   serves the built web bundle in production.
 - **`web`** — a React + Vite dashboard. In dev it runs on port `4516` and proxies `/api` to the API.
 - **`cli`** — the `dcs` command set (`list`, `resume`, `save`, `restore`, `snapshot`,
-  `restore-prompt`, `ui`, `serve`, `new`, `install-tasks`, `uninstall-tasks`).
+  `restore-prompt`, `ui`, `tui`, `serve`, `new`, `install-tasks`, `uninstall-tasks`). The TUI is a
+  zero-native-dependency terminal dashboard that calls `SessionManager` directly for sessions,
+  workspaces, snapshots, resume, and restore.
 - **`scheduling`** — installs/removes Windows Scheduled Tasks: a periodic `dcs snapshot` and a logon
   `dcs restore-prompt`.
 
