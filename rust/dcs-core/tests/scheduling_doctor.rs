@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dcs_core::doctor::{aggregate, DoctorCheck};
@@ -10,12 +11,14 @@ use dcs_core::scheduling::{
 };
 
 fn temp_root() -> PathBuf {
+    static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "dcs-rust-scheduling-{}-{nanos}",
+        "dcs-rust-scheduling-{}-{nanos}-{id}",
         std::process::id()
     ))
 }

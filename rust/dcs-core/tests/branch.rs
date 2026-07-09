@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use dcs_core::branch::branch_session;
@@ -10,11 +11,16 @@ const PARENT_ID: &str = "aaaaaaaa-1111-2222-3333-444444444444";
 const NEW_ID: &str = "bbbbbbbb-5555-6666-7777-888888888888";
 
 fn temp_root() -> PathBuf {
+    static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("dcs-rust-branch-{}-{nanos}", std::process::id()))
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!(
+        "dcs-rust-branch-{}-{nanos}-{id}",
+        std::process::id()
+    ))
 }
 
 fn write_parent(state_dir: &Path) {

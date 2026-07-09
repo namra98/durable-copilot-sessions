@@ -27,6 +27,7 @@
     "rust:fmt": "cargo fmt --check",
     "rust:lint": "cargo clippy --all-targets --all-features -- -D warnings",
     "rust:test": "cargo test --all",
+    "rust:smoke": "cargo test --test perf_smoke -- --nocapture",
     "rust:build": "cargo build --all",
     "rust:check": "npm run rust:fmt && npm run rust:lint && npm run rust:test && npm run rust:build",
     "test": "vitest run",

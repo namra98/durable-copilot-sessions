@@ -34,7 +34,8 @@ Use an incremental Rust migration: first freeze contracts and behavior with gold
 - Rust core parity is implemented for contract models, session discovery, open-session graph annotation, registry/config/snapshot/workspace export/diff, Windows Terminal launch planning, memory indexing/search, and stats rollups.
 - Rust HTTP API compatibility is implemented with Axum and covered by fixture-backed tests for session/graph ordering, response envelopes, config/logs/memory/workspace wrappers, fork creation, and new-session dry-run launch planning.
 - Rust CLI/scheduling parity is implemented in `dcs-rs`, including the existing command surface, doctor checks, Windows Scheduled Tasks argument builders, hidden VBScript launchers, and fixture-backed CLI smoke tests.
-- Remaining migration work is validation/benchmark smoke gates, then cutover packaging/docs.
+- Validation/benchmark smoke gates are implemented via `npm run rust:smoke`, which exercises large-tree live-only discovery performance, and `npm run rust:check`, which covers formatting, clippy, tests, and build.
+- Remaining migration work is cutover packaging/docs.
 
 ## Staged work items
 

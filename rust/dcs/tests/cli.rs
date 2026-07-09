@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn repo_root() -> PathBuf {
@@ -10,11 +11,13 @@ fn repo_root() -> PathBuf {
 }
 
 fn temp_root() -> PathBuf {
+    static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("dcs-rust-cli-{}-{nanos}", std::process::id()))
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("dcs-rust-cli-{}-{nanos}-{id}", std::process::id()))
 }
 
 fn copy_dir(from: &Path, to: &Path) {

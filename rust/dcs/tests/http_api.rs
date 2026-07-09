@@ -1,6 +1,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -20,11 +21,13 @@ fn repo_root() -> PathBuf {
 }
 
 fn temp_root() -> PathBuf {
+    static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    std::env::temp_dir().join(format!("dcs-rust-http-{}-{nanos}", std::process::id()))
+    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
+    std::env::temp_dir().join(format!("dcs-rust-http-{}-{nanos}-{id}", std::process::id()))
 }
 
 fn copy_dir(from: &Path, to: &Path) {
