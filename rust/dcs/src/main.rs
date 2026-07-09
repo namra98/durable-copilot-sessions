@@ -15,7 +15,9 @@ use dcs_core::model::{
 use dcs_core::paths::DcsPaths;
 use dcs_core::registry::load_config;
 use dcs_core::scheduling::{
-    install_tasks, run_schtasks, tasks_status, uninstall_tasks, write_hidden_launcher,
+    default_startup_dir, install_startup_restore, install_tasks, run_schtasks,
+    startup_restore_installed, tasks_status, uninstall_startup_restore, uninstall_tasks,
+    write_hidden_launcher,
 };
 
 #[tokio::main]
@@ -533,7 +535,7 @@ fn install_tasks_command(mut args: Args) -> Result<(), Box<dyn std::error::Error
     let restore_prompt_command = if hidden {
         write_hidden_launcher("logon-restore", &restore_inner, &paths.launchers_dir)?
     } else {
-        restore_inner
+        restore_inner.clone()
     };
     let result = install_tasks(
         &snapshot_command,
@@ -544,6 +546,19 @@ fn install_tasks_command(mut args: Args) -> Result<(), Box<dyn std::error::Error
     for message in result.messages {
         println!("{message}");
     }
+    if !result.logon {
+        let startup_dir = default_startup_dir();
+        match install_startup_restore(&restore_inner, &startup_dir) {
+            Ok(path) => println!(
+                "Installed current-user Startup fallback for logon restore: {}",
+                path.display()
+            ),
+            Err(error) => eprintln!(
+                "Failed to install current-user Startup fallback in {}: {error}",
+                startup_dir.display()
+            ),
+        }
+    }
     Ok(())
 }
 
@@ -551,11 +566,25 @@ fn uninstall_tasks_command() -> Result<(), Box<dyn std::error::Error>> {
     for message in uninstall_tasks(run_schtasks).messages {
         println!("{message}");
     }
+    let startup_dir = default_startup_dir();
+    match uninstall_startup_restore(&startup_dir) {
+        Ok(true) => println!(
+            "Removed current-user Startup fallback from {}.",
+            startup_dir.display()
+        ),
+        Ok(false) => println!("Current-user Startup fallback was not present."),
+        Err(error) => eprintln!(
+            "Failed to remove current-user Startup fallback from {}: {error}",
+            startup_dir.display()
+        ),
+    }
     Ok(())
 }
 
 fn tasks_status_command() -> Result<(), Box<dyn std::error::Error>> {
     let status = tasks_status(run_schtasks);
+    let startup_dir = default_startup_dir();
+    let startup = startup_restore_installed(&startup_dir);
     println!(
         "Snapshot task:      {}",
         if status.snapshot {
@@ -567,6 +596,14 @@ fn tasks_status_command() -> Result<(), Box<dyn std::error::Error>> {
     println!(
         "Logon restore task: {}",
         if status.logon {
+            "installed"
+        } else {
+            "not installed"
+        }
+    );
+    println!(
+        "Startup fallback:   {}",
+        if startup {
             "installed"
         } else {
             "not installed"
@@ -892,18 +929,21 @@ const COMMAND_HELP: &[CommandHelp] = &[
         name: "install-tasks",
         usage: "install-tasks [--interval minutes] [--no-hidden]",
         description: "Register scheduled snapshot and logon restore-prompt tasks.",
-        notes: Some(&["By default task actions run through hidden launcher scripts."]),
+        notes: Some(&[
+            "By default task actions run through hidden launcher scripts.",
+            "If Windows denies the logon Scheduled Task, installs a current-user Startup-folder fallback.",
+        ]),
     },
     CommandHelp {
         name: "uninstall-tasks",
         usage: "uninstall-tasks",
-        description: "Remove DCS scheduled tasks.",
+        description: "Remove DCS scheduled tasks and the current-user Startup fallback.",
         notes: None,
     },
     CommandHelp {
         name: "tasks-status",
         usage: "tasks-status",
-        description: "Show whether DCS scheduled tasks are currently registered.",
+        description: "Show whether DCS scheduled tasks and the Startup fallback are registered.",
         notes: None,
     },
     CommandHelp {

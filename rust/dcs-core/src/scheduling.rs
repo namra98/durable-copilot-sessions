@@ -2,11 +2,12 @@ use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub const SNAPSHOT_TASK_NAME: &str = "DurableCopilotSessions-Snapshot";
 pub const LOGON_TASK_NAME: &str = "DurableCopilotSessions-LogonRestore";
+pub const STARTUP_RESTORE_SCRIPT_NAME: &str = "DurableCopilotSessions-LogonRestore.vbs";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskExecResult {
@@ -127,6 +128,70 @@ pub fn write_hidden_launcher(
         "wscript.exe //B //Nologo \"{}\"",
         vbs_path.to_string_lossy()
     ))
+}
+
+pub fn default_startup_dir() -> PathBuf {
+    let known_folder = Command::new("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "[Environment]::GetFolderPath('Startup')",
+        ])
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| text(output.stdout))
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute());
+
+    known_folder.unwrap_or_else(|| {
+        let home = std::env::var_os("USERPROFILE")
+            .or_else(|| std::env::var_os("HOME"))
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."));
+        home.join("AppData")
+            .join("Roaming")
+            .join("Microsoft")
+            .join("Windows")
+            .join("Start Menu")
+            .join("Programs")
+            .join("Startup")
+    })
+}
+
+pub fn startup_restore_script_path(dir: impl AsRef<Path>) -> PathBuf {
+    dir.as_ref().join(STARTUP_RESTORE_SCRIPT_NAME)
+}
+
+pub fn install_startup_restore(
+    command: &str,
+    dir: impl AsRef<Path>,
+) -> Result<PathBuf, SchedulingError> {
+    let dir = dir.as_ref();
+    fs::create_dir_all(dir)?;
+    let file = startup_restore_script_path(dir);
+    let tmp = file.with_extension(format!("vbs.tmp-{}", std::process::id()));
+    let escaped = command.replace('"', "\"\"");
+    fs::write(
+        &tmp,
+        format!("CreateObject(\"WScript.Shell\").Run \"{escaped}\", 0, False\r\n"),
+    )?;
+    fs::rename(&tmp, &file)?;
+    Ok(file)
+}
+
+pub fn uninstall_startup_restore(dir: impl AsRef<Path>) -> Result<bool, SchedulingError> {
+    let file = startup_restore_script_path(dir);
+    match fs::remove_file(file) {
+        Ok(()) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error.into()),
+    }
+}
+
+pub fn startup_restore_installed(dir: impl AsRef<Path>) -> bool {
+    startup_restore_script_path(dir).is_file()
 }
 
 pub fn run_schtasks(args: &[String]) -> TaskExecResult {

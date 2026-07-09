@@ -146,3 +146,16 @@ fn serve_reports_friendly_port_conflict() {
     drop(listener);
     fs::remove_dir_all(root).unwrap();
 }
+
+#[test]
+fn tasks_status_reports_startup_fallback() {
+    let root = temp_root();
+    let output = run_cli(&root, &["tasks-status"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("Snapshot task:"));
+    assert!(stdout.contains("Logon restore task:"));
+    assert!(stdout.contains("Startup fallback:"));
+
+    fs::remove_dir_all(root).unwrap();
+}

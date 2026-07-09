@@ -6,8 +6,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use dcs_core::doctor::{aggregate, DoctorCheck};
 use dcs_core::scheduling::{
     build_create_logon_args, build_create_snapshot_args, build_delete_args, build_query_args,
-    install_tasks, tasks_status, uninstall_tasks, write_hidden_launcher, TaskExecResult,
-    LOGON_TASK_NAME, SNAPSHOT_TASK_NAME,
+    install_startup_restore, install_tasks, startup_restore_installed, startup_restore_script_path,
+    tasks_status, uninstall_startup_restore, uninstall_tasks, write_hidden_launcher,
+    TaskExecResult, LOGON_TASK_NAME, SNAPSHOT_TASK_NAME, STARTUP_RESTORE_SCRIPT_NAME,
 };
 
 fn temp_root() -> PathBuf {
@@ -67,6 +68,28 @@ fn hidden_launcher_writes_vbs_action_with_escaped_quotes() {
     assert!(script.contains(".Run \""));
     assert!(script.contains("\", 0, False"));
     assert!(script.contains(r#"""C:\dcs-rs.exe"" snapshot"#));
+
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn startup_fallback_writes_and_removes_hidden_restore_launcher() {
+    let root = temp_root();
+    let command = r#""C:\dcs-rs.exe" restore-prompt"#;
+    let path = install_startup_restore(command, &root).unwrap();
+
+    assert_eq!(path, startup_restore_script_path(&root));
+    assert_eq!(path.file_name().unwrap(), STARTUP_RESTORE_SCRIPT_NAME);
+    assert!(startup_restore_installed(&root));
+
+    let script = fs::read_to_string(&path).unwrap();
+    assert!(script.contains(".Run \""));
+    assert!(script.contains("\", 0, False"));
+    assert!(script.contains(r#"""C:\dcs-rs.exe"" restore-prompt"#));
+
+    assert!(uninstall_startup_restore(&root).unwrap());
+    assert!(!uninstall_startup_restore(&root).unwrap());
+    assert!(!startup_restore_installed(&root));
 
     fs::remove_dir_all(root).unwrap();
 }
