@@ -1,4 +1,5 @@
 use std::fs;
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -68,6 +69,16 @@ fn help_lists_the_contract_cli_commands() {
     ] {
         assert!(stdout.contains(command), "missing command {command}");
     }
+    assert!(stdout.contains("Start or reuse the local Rust API server"));
+    assert!(stdout.contains("Show command descriptions"));
+
+    let ui_help = run_cli(&root, &["help", "ui"]);
+    assert!(ui_help.status.success());
+    let ui_stdout = String::from_utf8_lossy(&ui_help.stdout);
+    assert!(ui_stdout.contains("Usage:"));
+    assert!(ui_stdout.contains("dcs ui [--port n]"));
+    assert!(ui_stdout.contains("If the port is already in use"));
+
     fs::remove_dir_all(root).unwrap();
 }
 
@@ -117,5 +128,21 @@ fn new_session_dry_run_creates_launch_script_without_spawning_wt() {
         .iter()
         .any(|script| script.contains("hello from cli")));
 
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn serve_reports_friendly_port_conflict() {
+    let root = temp_root();
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port().to_string();
+
+    let output = run_cli(&root, &["serve", "--port", &port]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("already in use"));
+    assert!(stderr.contains("dcs ui"));
+
+    drop(listener);
     fs::remove_dir_all(root).unwrap();
 }

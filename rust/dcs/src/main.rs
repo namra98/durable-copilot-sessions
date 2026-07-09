@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -37,8 +38,9 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
             println!("{}", env!("CARGO_PKG_VERSION"));
             Ok(())
         }
-        Some("serve") => serve_command(args).await,
-        Some("ui") => serve_command(args).await,
+        Some("help") => help_command(args),
+        Some("serve") => serve_command(args, ServeMode::Serve).await,
+        Some("ui") => serve_command(args, ServeMode::Ui).await,
         Some("restore-prompt") => restore_prompt_command().await,
         Some("list") => list_command(args),
         Some("resume") => resume_command(args),
@@ -67,7 +69,13 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
 }
 
-async fn serve_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ServeMode {
+    Serve,
+    Ui,
+}
+
+async fn serve_command(mut args: Args, mode: ServeMode) -> Result<(), Box<dyn std::error::Error>> {
     let paths = DcsPaths::from_env();
     let config = load_config(&paths.config_file);
     let port = args
@@ -75,9 +83,9 @@ async fn serve_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>>
         .or_else(|| args.take_next())
         .and_then(|value| value.parse::<u16>().ok())
         .unwrap_or(config.api_port);
-    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-    println!("API listening: http://{addr}/api  (Ctrl+C to stop)");
-    dcs_rs::server::serve(dcs_rs::server::ServerOptions { addr, paths }).await
+    let ui_url = format!("http://127.0.0.1:{port}/restore-prompt");
+    let open_url = (mode == ServeMode::Ui && config.auto_open_browser).then_some(ui_url);
+    serve_local_api(paths, port, open_url, mode).await
 }
 
 fn list_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -324,10 +332,8 @@ async fn restore_prompt_command() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
     let url = format!("http://127.0.0.1:{}/restore-prompt", config.api_port);
-    if config.auto_open_browser {
-        open_local_url_after_delay(url.clone());
-    }
-    serve_on(paths, config.api_port, Some(&url)).await
+    let open_url = config.auto_open_browser.then_some(url);
+    serve_local_api(paths, config.api_port, open_url, ServeMode::Ui).await
 }
 
 fn new_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -599,18 +605,36 @@ fn doctor_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn serve_on(
+async fn serve_local_api(
     paths: DcsPaths,
     port: u16,
-    url: Option<&str>,
+    open_url: Option<String>,
+    mode: ServeMode,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-    println!(
-        "Open {} to review and restore.",
-        url.map(ToOwned::to_owned)
-            .unwrap_or_else(|| format!("http://{addr}"))
-    );
-    dcs_rs::server::serve(dcs_rs::server::ServerOptions { addr, paths }).await
+    let listener = match tokio::net::TcpListener::bind(addr).await {
+        Ok(listener) => listener,
+        Err(error) if error.kind() == ErrorKind::AddrInUse && mode == ServeMode::Ui => {
+            let url = open_url.unwrap_or_else(|| format!("http://{addr}/restore-prompt"));
+            println!("Port {port} is already in use; reusing the server at {url}.");
+            open_local_url_after_delay(url);
+            return Ok(());
+        }
+        Err(error) if error.kind() == ErrorKind::AddrInUse => {
+            return Err(format!(
+                "Port {port} is already in use. If this is an existing DCS server, use `dcs ui` to open it, or run `dcs serve --port <free-port>`."
+            )
+            .into());
+        }
+        Err(error) => return Err(error.into()),
+    };
+
+    if let Some(url) = open_url {
+        println!("Open {url} to review and restore.");
+        open_local_url_after_delay(url);
+    }
+    println!("API listening: http://{addr}/api  (Ctrl+C to stop)");
+    dcs_rs::server::serve_listener(listener, paths).await
 }
 
 fn open_local_url_after_delay(url: String) {
@@ -708,10 +732,225 @@ fn print_sessions(sessions: &[dcs_core::model::SessionView], tree: bool, open_co
     }
 }
 
+struct CommandHelp {
+    name: &'static str,
+    usage: &'static str,
+    description: &'static str,
+    notes: Option<&'static [&'static str]>,
+}
+
+const COMMAND_HELP: &[CommandHelp] = &[
+    CommandHelp {
+        name: "list",
+        usage: "list [--live|--all] [--tree]",
+        description: "List discovered Copilot sessions; defaults to open top-level terminal sessions.",
+        notes: Some(&[
+            "`--live` shows only sessions with live lock PIDs.",
+            "`--all` includes stale and inactive sessions.",
+            "`--tree` groups child sessions under their open terminal parent.",
+        ]),
+    },
+    CommandHelp {
+        name: "resume",
+        usage: "resume <sessionId> [--window new|current] [--color color] [--title title] [--dry-run]",
+        description: "Open a Windows Terminal tab that runs `copilot --resume <sessionId>`.",
+        notes: Some(&["`--dry-run` writes the launch script without starting Windows Terminal."]),
+    },
+    CommandHelp {
+        name: "fork",
+        usage: "fork <sessionId> [--note text] [--launch] [--color color] [--window new|current] [--dry-run] --confirm-copilot-state-write",
+        description: "Create a forked Copilot session-state entry and record lineage for the graph.",
+        notes: Some(&[
+            "Requires `--confirm-copilot-state-write` because it writes under Copilot-owned session state.",
+            "`--launch` immediately opens the fork after creating it.",
+        ]),
+    },
+    CommandHelp {
+        name: "recall",
+        usage: "recall <query...> [--repo repository] [--kind kind] [--limit n]",
+        description: "Search the local memory index for relevant past session context.",
+        notes: Some(&["Run `dcs reindex-memory` if recall returns no results after new activity."]),
+    },
+    CommandHelp {
+        name: "reindex-memory",
+        usage: "reindex-memory",
+        description: "Rebuild the local memory/recall index from readable Copilot session data.",
+        notes: None,
+    },
+    CommandHelp {
+        name: "save",
+        usage: "save <name> [--all] [--description text]",
+        description: "Save the current layout as a named DCS workspace.",
+        notes: Some(&["Without `--all`, only live top-level sessions are captured."]),
+    },
+    CommandHelp {
+        name: "restore",
+        usage: "restore <nameOrId> [--window new|current] [--dry-run]",
+        description: "Restore a saved workspace by name or id.",
+        notes: Some(&["Uses the workspace's recorded windows/tabs and session ids."]),
+    },
+    CommandHelp {
+        name: "resume-repo",
+        usage: "resume-repo <repository> [--window new|current] [--dry-run]",
+        description: "Resume every open session whose repo/path matches the provided text.",
+        notes: None,
+    },
+    CommandHelp {
+        name: "restore-last",
+        usage: "restore-last [--window new|current] [--dry-run]",
+        description: "Restore the most recent auto-snapshot.",
+        notes: Some(&["Create snapshots with `dcs snapshot` or the scheduled snapshot task."]),
+    },
+    CommandHelp {
+        name: "snapshot",
+        usage: "snapshot",
+        description: "Capture a rolling auto-snapshot of the current open session layout.",
+        notes: None,
+    },
+    CommandHelp {
+        name: "restore-prompt",
+        usage: "restore-prompt",
+        description: "Logon helper: show the latest snapshot prompt or auto-restore based on config.",
+        notes: Some(&["In prompt mode it opens `/restore-prompt` on the local API server."]),
+    },
+    CommandHelp {
+        name: "ui",
+        usage: "ui [--port n]",
+        description: "Start or reuse the local Rust API server and open the restore prompt page.",
+        notes: Some(&[
+            "If the port is already in use, this command opens the existing local server URL instead of failing.",
+            "The legacy React dashboard remains available through `npm run dev` from the repo.",
+        ]),
+    },
+    CommandHelp {
+        name: "serve",
+        usage: "serve [--port n]",
+        description: "Start the blocking Rust API server on localhost.",
+        notes: Some(&[
+            "Use this for API/TUI development.",
+            "If the port is occupied, use `dcs ui` to reuse an existing DCS server or choose another port.",
+        ]),
+    },
+    CommandHelp {
+        name: "new",
+        usage: "new <title> [--cwd dir] [--color color] [--prompt text] [--window new|current] [--dry-run]",
+        description: "Launch a brand-new managed Copilot session in Windows Terminal.",
+        notes: None,
+    },
+    CommandHelp {
+        name: "clean",
+        usage: "clean [--remove --confirm-copilot-state-write]",
+        description: "Report stale Copilot lock files; optionally remove dead-PID locks.",
+        notes: Some(&[
+            "Default mode is read-only.",
+            "Removal requires `--remove --confirm-copilot-state-write` as an explicit escape hatch.",
+        ]),
+    },
+    CommandHelp {
+        name: "stats",
+        usage: "stats",
+        description: "Show local usage/session statistics from readable Copilot session-store data.",
+        notes: None,
+    },
+    CommandHelp {
+        name: "transcript",
+        usage: "transcript <sessionId> [-o|--out file]",
+        description: "Print or export a session transcript when local transcript data exists.",
+        notes: None,
+    },
+    CommandHelp {
+        name: "logs",
+        usage: "logs [--lines n] [--level level]",
+        description: "Tail DCS-owned JSON log records.",
+        notes: None,
+    },
+    CommandHelp {
+        name: "export-workspaces",
+        usage: "export-workspaces [file]",
+        description: "Export saved workspaces as JSON to stdout or a file.",
+        notes: None,
+    },
+    CommandHelp {
+        name: "import-workspaces",
+        usage: "import-workspaces <file> [--fresh-ids]",
+        description: "Import workspaces from a DCS workspace export JSON file.",
+        notes: Some(&["Use `--fresh-ids` to avoid replacing workspaces with matching ids."]),
+    },
+    CommandHelp {
+        name: "diff",
+        usage: "diff <workspace>",
+        description: "Compare a saved workspace with the currently discovered session layout.",
+        notes: None,
+    },
+    CommandHelp {
+        name: "tray",
+        usage: "tray",
+        description: "Start the Windows system-tray helper with quick snapshot/restore actions.",
+        notes: Some(&["The tray helper uses Windows PowerShell and Windows Forms NotifyIcon."]),
+    },
+    CommandHelp {
+        name: "install-tasks",
+        usage: "install-tasks [--interval minutes] [--no-hidden]",
+        description: "Register scheduled snapshot and logon restore-prompt tasks.",
+        notes: Some(&["By default task actions run through hidden launcher scripts."]),
+    },
+    CommandHelp {
+        name: "uninstall-tasks",
+        usage: "uninstall-tasks",
+        description: "Remove DCS scheduled tasks.",
+        notes: None,
+    },
+    CommandHelp {
+        name: "tasks-status",
+        usage: "tasks-status",
+        description: "Show whether DCS scheduled tasks are currently registered.",
+        notes: None,
+    },
+    CommandHelp {
+        name: "doctor",
+        usage: "doctor [--json]",
+        description: "Run environment checks for Windows Terminal, Copilot, Node, state dirs, and tasks.",
+        notes: None,
+    },
+    CommandHelp {
+        name: "help",
+        usage: "help [command]",
+        description: "Show command descriptions or detailed help for one command.",
+        notes: None,
+    },
+];
+
 fn print_help() {
-    println!(
-        "Durable Copilot Sessions (Rust)\n\nCommands:\n  list [--live|--all] [--tree]\n  resume <sessionId> [--window new|current] [--color color] [--title title] [--dry-run]\n  fork <sessionId> [--note text] [--launch] [--color color] [--window new|current] [--dry-run] --confirm-copilot-state-write\n  recall <query...> [--repo repository] [--kind kind] [--limit n]\n  reindex-memory\n  save <name> [--all] [--description text]\n  restore <nameOrId> [--window new|current] [--dry-run]\n  resume-repo <repository> [--window new|current] [--dry-run]\n  restore-last [--window new|current] [--dry-run]\n  snapshot\n  restore-prompt\n  ui [--port n]\n  serve [--port n]\n  new <title> [--cwd dir] [--color color] [--prompt text] [--window new|current] [--dry-run]\n  clean [--remove --confirm-copilot-state-write]\n  stats\n  transcript <sessionId> [-o|--out file]\n  logs [--lines n] [--level level]\n  export-workspaces [file]\n  import-workspaces <file> [--fresh-ids]\n  diff <workspace>\n  tray\n  install-tasks [--interval minutes] [--no-hidden]\n  uninstall-tasks\n  tasks-status\n  doctor [--json]"
-    );
+    println!("Durable Copilot Sessions (Rust)\n");
+    println!("Usage:");
+    println!("  dcs <command> [options]");
+    println!("  dcs help <command>\n");
+    println!("Commands:");
+    for command in COMMAND_HELP {
+        println!("  {:<84} {}", command.usage, command.description);
+    }
+}
+
+fn help_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    let Some(name) = args.take_next() else {
+        print_help();
+        return Ok(());
+    };
+    let Some(command) = COMMAND_HELP.iter().find(|command| command.name == name) else {
+        return Err(format!("Unknown command: {name}").into());
+    };
+    println!("{}\n", command.name);
+    println!("Usage:");
+    println!("  dcs {}", command.usage);
+    println!("\nWhat it does:");
+    println!("  {}", command.description);
+    if let Some(notes) = command.notes {
+        println!("\nNotes:");
+        for note in notes {
+            println!("  - {note}");
+        }
+    }
+    Ok(())
 }
 
 fn tab_count(workspace: &Workspace) -> usize {

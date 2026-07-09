@@ -29,8 +29,15 @@ pub struct ServerOptions {
 }
 
 pub async fn serve(options: ServerOptions) -> Result<(), Box<dyn std::error::Error>> {
-    let manager = SessionManager::new(options.paths)?;
     let listener = tokio::net::TcpListener::bind(options.addr).await?;
+    serve_listener(listener, options.paths).await
+}
+
+pub async fn serve_listener(
+    listener: tokio::net::TcpListener,
+    paths: DcsPaths,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let manager = SessionManager::new(paths)?;
     axum::serve(listener, router(Arc::new(Mutex::new(manager)))).await?;
     Ok(())
 }

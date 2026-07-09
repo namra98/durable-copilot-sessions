@@ -69,7 +69,8 @@
       { "name": "install-tasks" },
       { "name": "uninstall-tasks" },
       { "name": "tasks-status" },
-      { "name": "doctor" }
+      { "name": "doctor" },
+      { "name": "help" }
     ]
   },
   "environment": [

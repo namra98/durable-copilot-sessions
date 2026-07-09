@@ -190,14 +190,15 @@ All commands are subcommands of `dcs`.
 
 | Command | Description |
 | --- | --- |
+| `dcs help [command]` | Show what every command does, or detailed help for one command. |
 | `dcs list [--all]` | List discovered sessions (live first) with name, cwd, repo, branch, and liveness. `--all` includes stale/inactive sessions. |
 | `dcs resume <sessionId> [--window new\|current] [--color <c>] [--title <t>]` | Open a Windows Terminal tab that resumes the given session in its recorded cwd. |
 | `dcs save <name> [--all] [--description <d>]` | Save the current live layout as a named workspace. `--all` includes non‑top‑level sessions. |
 | `dcs restore <name\|id> [--window new\|current]` | Relaunch a saved workspace's windows + tabs. |
 | `dcs snapshot` | Take a rolling auto‑snapshot of the current layout (used by the Scheduled Task). |
 | `dcs restore-prompt` | On logon, if a recent snapshot exists, prompt and open the UI to restore it. |
-| `dcs ui` | Compatibility alias for `dcs serve`; the dashboard remains a separate legacy/dev client. |
-| `dcs serve [--port <n>]` | Start the Rust API server. |
+| `dcs ui [--port <n>]` | Start or reuse the Rust API server and open the built-in restore prompt page. If the port is already occupied, it reuses the existing local server URL instead of failing. |
+| `dcs serve [--port <n>]` | Start the blocking Rust API server. If the port is occupied, it explains how to reuse `dcs ui` or choose another port. |
 | `dcs new <title> [--cwd <dir>] [--color <c>] [--prompt <p>]` | Launch a brand‑new managed Copilot session in a Windows Terminal tab. |
 | `dcs install-tasks [--interval <minutes>] [--no-hidden]` | Register the periodic snapshot task + current-user logon restore prompt. Runs hidden (no console flash) by default; `--no-hidden` shows a window. Falls back to the current user's Windows Startup known folder if Windows denies the logon Scheduled Task. |
 | `dcs uninstall-tasks` | Remove the Scheduled Tasks and any Startup-folder fallback. |
