@@ -13,7 +13,7 @@ import {
   putConfig,
   resumeBatch,
   searchMemory,
-} from "./client";
+} from "./apiClient";
 
 function makeResponse(body: unknown, ok = true, status = 200): Response {
   return {

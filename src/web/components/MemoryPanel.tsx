@@ -24,7 +24,7 @@ import type {
   MemorySearchHit,
   WindowTarget,
 } from "../../core/types";
-import * as api from "../api/client";
+import * as api from "../lib/apiClient";
 import { buildContextPack, isRecallEmpty } from "../lib/contextPack";
 import { relativeTime } from "../lib/format";
 import { cn } from "@/lib/utils";

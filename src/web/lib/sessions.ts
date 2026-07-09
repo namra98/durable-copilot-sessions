@@ -4,7 +4,7 @@
  * Keeping these here (rather than inline in components) lets them be unit-tested
  * under the node-only vitest environment without a DOM.
  */
-import type { SessionView } from "../api/client";
+import type { SessionView } from "./apiClient";
 
 /** Sort orderings offered by the toolbar. */
 export type SortKey = "recent" | "name" | "repo" | "liveness";

@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronRight, Clock, RotateCcw } from "lucide-react";
 import type { WindowTarget, Workspace } from "../../core/types";
-import * as api from "../api/client";
-import type { WorkspaceDiff } from "../api/client";
+import * as api from "../lib/apiClient";
+import type { WorkspaceDiff } from "../lib/apiClient";
 import { absoluteTime, relativeTime } from "../lib/format";
 import type { PushOptions, ToastKind } from "./Toast";
 import { cn } from "@/lib/utils";

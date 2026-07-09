@@ -16,13 +16,13 @@ import {
   ChevronRight,
 } from "lucide-react";
 import type { AppConfig, LaunchResult, TabSpec, WindowSpec, WindowTarget, Workspace } from "../core/types";
-import * as api from "./api/client";
+import * as api from "./lib/apiClient";
 import type {
   CreateWorkspaceBody,
   SessionFilter,
   SessionPatch,
   SessionView,
-} from "./api/client";
+} from "./lib/apiClient";
 import { SessionCard } from "./components/SessionCard";
 import { SkeletonGrid } from "./components/SkeletonCard";
 import { Toolbar, type Grouping } from "./components/Toolbar";
