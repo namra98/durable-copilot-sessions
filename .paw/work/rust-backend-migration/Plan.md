@@ -28,6 +28,13 @@ Use an incremental Rust migration: first freeze contracts and behavior with gold
 5. **Use Rust for hot paths first.** Discovery, open-session annotation, registry IO, workspace diff, and launch script/argv builders are the speed-sensitive core; memory indexing and dashboard serving can follow after core parity.
 6. **Document API contract for the future TUI.** Generate or maintain a machine-readable contract plus human docs so the TUI can bind to stable endpoints without depending on the React dashboard.
 
+## Implementation progress
+
+- Contract freeze and Rust workspace scaffold are complete. The checked-in contract is `contracts\backend-api.v1.json`; golden fixtures live under `tests\fixtures\contracts\`.
+- Rust core parity is implemented for contract models, session discovery, open-session graph annotation, registry/config/snapshot/workspace export/diff, Windows Terminal launch planning, memory indexing/search, and stats rollups.
+- Rust HTTP API compatibility is implemented with Axum and covered by fixture-backed tests for session/graph ordering, response envelopes, config/logs/memory/workspace wrappers, fork creation, and new-session dry-run launch planning.
+- Remaining migration work is Rust CLI/scheduling parity, validation/benchmark smoke gates, then cutover packaging/docs.
+
 ## Staged work items
 
 ### Stage 0 - Contract freeze and parity harness

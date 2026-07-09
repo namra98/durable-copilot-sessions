@@ -404,6 +404,7 @@ pub struct ForkBody {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ForkResult {
     pub session: SessionView,
+    pub fork: SessionBranchResult,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub launch: Option<LaunchResult>,
 }

@@ -33,6 +33,17 @@ pub struct LaunchWindowsOptions {
     pub home_dir: PathBuf,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewSessionOptions {
+    pub title: String,
+    pub cwd: String,
+    pub color: String,
+    pub prompt: Option<String>,
+    pub window: Option<WindowTarget>,
+    pub copilot_command: Option<String>,
+    pub copilot_args: Vec<String>,
+}
+
 #[derive(Debug)]
 pub enum LaunchError {
     Io(io::Error),
@@ -170,6 +181,7 @@ pub fn plan_resume_session(
     if let Some(warning) = resolved.warning {
         warnings.push(warning);
     }
+
     let tab = TabSpec {
         session_id: opts.session_id.clone(),
         title: opts
@@ -184,6 +196,53 @@ pub fn plan_resume_session(
     let script_path = write_launch_script(&render_launch_script(&tab, command), script_dir)?;
     let built = BuiltTab {
         spec: tab,
+        script_path,
+    };
+    let args = build_window_args(
+        opts.window.unwrap_or(WindowTarget::New),
+        &[built],
+        "powershell.exe",
+    )?;
+    Ok(LaunchPlan {
+        args: vec![args],
+        result: LaunchResult {
+            ok: true,
+            tabs_launched: 1,
+            windows_opened: 1,
+            warnings,
+            error: None,
+        },
+    })
+}
+
+pub fn plan_new_session(
+    opts: &NewSessionOptions,
+    script_dir: impl AsRef<Path>,
+    home_dir: impl AsRef<Path>,
+) -> Result<LaunchPlan, LaunchError> {
+    let mut warnings = Vec::new();
+    let resolved = resolve_launch_cwd(&opts.cwd, &[], home_dir.as_ref());
+    if let Some(warning) = resolved.warning {
+        warnings.push(warning);
+    }
+    let command = opts.copilot_command.as_deref().unwrap_or("copilot");
+    let script_path = write_launch_script(
+        &render_new_session_script(
+            &resolved.cwd,
+            opts.prompt.as_deref(),
+            command,
+            &opts.copilot_args,
+        ),
+        script_dir,
+    )?;
+    let built = BuiltTab {
+        spec: TabSpec {
+            session_id: "new".into(),
+            title: opts.title.clone(),
+            color: opts.color.clone(),
+            cwd: resolved.cwd,
+            copilot_args: None,
+        },
         script_path,
     };
     let args = build_window_args(
@@ -224,6 +283,7 @@ pub fn plan_launch_windows(
             if let Some(warning) = resolved.warning {
                 warnings.push(warning);
             }
+
             let spec = TabSpec {
                 cwd: resolved.cwd,
                 copilot_args: options
@@ -251,6 +311,36 @@ pub fn plan_launch_windows(
             error: None,
         },
     })
+}
+
+pub fn execute_launch_plan(plan: LaunchPlan, dry_run: bool) -> LaunchResult {
+    if dry_run {
+        return plan.result;
+    }
+    for args in &plan.args {
+        match std::process::Command::new("wt").args(args).status() {
+            Ok(status) if status.success() => {}
+            Ok(status) => {
+                return LaunchResult {
+                    ok: false,
+                    tabs_launched: 0,
+                    windows_opened: 0,
+                    warnings: plan.result.warnings,
+                    error: Some(format!("wt.exe exited with status {status}")),
+                };
+            }
+            Err(error) => {
+                return LaunchResult {
+                    ok: false,
+                    tabs_launched: 0,
+                    windows_opened: 0,
+                    warnings: plan.result.warnings,
+                    error: Some(error.to_string()),
+                };
+            }
+        }
+    }
+    plan.result
 }
 
 pub fn preflight<F>(resolve: F) -> (bool, Vec<String>)
