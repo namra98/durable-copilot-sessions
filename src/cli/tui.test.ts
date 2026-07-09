@@ -176,4 +176,18 @@ describe("runTui", () => {
     expect(manager.memoryQueries).toContain("decision");
     expect(manager.resumedSessions).toContain("memory-session");
   });
+
+  it("redraws live search without clearing the whole screen", async () => {
+    const io = fakeIo();
+    const promise = runTui(new FakeManager(), io);
+
+    io.stdin.emit("data", "/");
+    io.stdin.emit("data", "streamliner");
+    io.stdin.emit("data", "\u0003");
+    await promise;
+
+    const output = io.stdout.chunks.join("");
+    expect(output).not.toContain("\x1b[2J");
+    expect(output).toContain("\x1b[H");
+  });
 });

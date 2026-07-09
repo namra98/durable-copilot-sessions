@@ -182,8 +182,8 @@ class TuiApp {
   private render(): void {
     const columns = this.stdout.columns ?? 100;
     const rows = this.stdout.rows ?? 30;
-    this.stdout.write("\x1b[2J\x1b[H");
-    this.stdout.write(renderTui(this.state, this.data, { columns, rows, color: true }));
+    const frame = renderTui(this.state, this.data, { columns, rows, color: true });
+    this.stdout.write(`\x1b[H${padFrame(frame, rows)}\x1b[0J`);
   }
 
   private async handleInput(input: string): Promise<void> {
@@ -274,4 +274,12 @@ class TuiApp {
 
 function memoryTitle(hit: MemorySearchHit): string {
   return hit.memory.title ?? hit.memory.sessionId.slice(0, 8);
+}
+
+function padFrame(frame: string, rows: number): string {
+  const lines = frame.split("\n").slice(0, Math.max(0, rows));
+  while (lines.length < rows) {
+    lines.push("");
+  }
+  return lines.join("\n");
 }
