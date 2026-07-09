@@ -30,5 +30,8 @@ jobs:
       - name: Test
         run: npm test
 
+      - name: Rust check
+        run: npm run rust:check
+
       - name: Build
         run: npm run build

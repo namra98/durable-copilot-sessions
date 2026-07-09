@@ -1,5 +1,5 @@
 /**
- * Typed fetch wrapper around the local Express API exposed under `/api`.
+ * Typed fetch wrapper around the local Rust API exposed under `/api`.
  *
  * Every helper throws an `Error` carrying the server-provided message on a
  * non-2xx response so callers can surface it directly in a toast.

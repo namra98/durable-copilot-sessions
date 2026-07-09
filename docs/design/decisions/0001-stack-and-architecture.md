@@ -1,6 +1,6 @@
 # 1. Stack and architecture
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0004](0004-rust-backend-migration.md)
 - **Date:** 2026-06-16
 - **Deciders:** project authors
 
@@ -56,3 +56,10 @@ pure-JS packages (`commander`, `express`, `open`, `react`, `react-dom`, `yaml`).
   `scheduling` modules with pure, dry-run-testable argv builders.
 - The tool remains **Windows-only** regardless of language, because `wt.exe` is the integration
   surface.
+
+## Superseded by Rust backend migration
+
+This decision describes the original implementation. The primary backend/core, CLI, and local API
+have since moved to Rust for lower-latency discovery and API responses while preserving the same
+state layout and `/api` contract. The TypeScript/React code remains as a legacy dashboard and
+contract-compatibility layer during cutover.

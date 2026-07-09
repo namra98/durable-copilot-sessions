@@ -9,9 +9,10 @@ the `LIMITED` run level (no elevation) and run as the current user.
 | `DurableCopilotSessions-Snapshot`    | Every _N_ minutes    | `<dcs> snapshot`              |
 | `DurableCopilotSessions-LogonRestore`| At user logon        | `<dcs> restore-prompt`        |
 
-`<dcs>` is the fully-resolved command line the CLI passes in — e.g.
-`node <repoRoot>\dist\cli\index.js` (built) or `npx tsx <repoRoot>\src\cli\index.ts`
-(dev). The snapshot interval comes from `snapshotIntervalMinutes` in the config.
+`<dcs>` is the fully-resolved Rust executable the CLI passes in — e.g.
+`<repoRoot>\target\release\dcs-rs.exe snapshot`. The npm-linked `dcs` command is a thin launcher
+that delegates to that binary after `npm run build` or `npm run build:rust`.
+The snapshot interval comes from `snapshotIntervalMinutes` in the config.
 
 ## Inspecting the tasks
 

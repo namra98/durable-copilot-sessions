@@ -21,7 +21,7 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
 $root = Split-Path -Parent $PSScriptRoot
-$cli = Join-Path $root "dist\cli\index.js"
+$cli = Join-Path $root "dist\cli\rust-bin.js"
 if (-not (Test-Path $cli)) {
   Write-Host "Build first: npm run build" -ForegroundColor Yellow
   exit 1

@@ -5,24 +5,25 @@
   "description": "Save, snapshot, and one-click restore your Copilot CLI sessions across Windows Terminal windows and tabs - durable across reboots.",
   "type": "module",
   "bin": {
-    "dcs": "dist/cli/index.js"
+    "dcs": "dist/cli/rust-bin.js"
   },
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "dev": "concurrently -n api,web --kill-others-on-fail \"npm:dev:api\" \"npm:dev:web\"",
-    "dev:api": "tsx watch src/server/index.ts",
+    "dev:api": "cargo run -p dcs-rs -- serve",
     "dev:web": "vite",
-    "build": "npm run build:node && npm run build:web",
+    "build": "npm run build:rust && npm run build:node && npm run build:web",
+    "build:rust": "cargo build --release -p dcs-rs",
     "build:node": "tsc -p tsconfig.node.json",
     "build:web": "vite build",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
-    "check": "npm run typecheck && npm run lint && npm test && npm run build",
+    "check": "npm run typecheck && npm run lint && npm test && npm run rust:check && npm run build",
     "setup": "npm install && npm run build && npm link",
-    "start": "node dist/server/index.js",
-    "cli": "tsx src/cli/index.ts",
-    "ui": "tsx src/cli/index.ts ui",
+    "start": "node dist/cli/rust-bin.js serve",
+    "cli": "cargo run -p dcs-rs --",
+    "ui": "node dist/cli/rust-bin.js ui",
     "lint": "eslint .",
     "rust:fmt": "cargo fmt --check",
     "rust:lint": "cargo clippy --all-targets --all-features -- -D warnings",

@@ -1,7 +1,7 @@
 # AGENTS.md
 
 Guidance for coding agents (and humans) working in **durable-copilot-sessions**. Keep changes small,
-typed, and tested. When in doubt, mirror the patterns already in `src/core`.
+typed, and tested. Backend/core changes should mirror the Rust patterns in `rust/dcs-core`.
 
 ## What this project is
 
@@ -13,23 +13,27 @@ picture.
 
 ## Stack
 
-- **TypeScript (ESM, `NodeNext`)** — Node `>=20`.
-- **Express** local API server (default port **4517**).
-- **Vite + React** web dashboard (dev port **4516**, proxies `/api` → API).
-- **Vitest** for tests.
-- **Zero native dependencies.** Optional SQLite enrichment uses the built-in `node:sqlite` behind a
-  try/catch.
+- **Rust (MSRV 1.80)** for the primary backend/core, CLI, Axum API, scheduling helpers, and memory
+  index. Unsafe code is forbidden.
+- **TypeScript (ESM, `NodeNext`)** — Node `>=20` for the npm launcher, legacy compatibility code,
+  contract tests, and React dashboard.
+- **Axum** local API server (default port **4517**).
+- **Vite + React** legacy/dev dashboard (dev port **4516**, proxies `/api` → API).
+- **Vitest** for TypeScript contract tests and Cargo tests for Rust.
 
 ## Conventions
 
-- **`.js` import extensions.** Because of `NodeNext`, relative imports must use the `.js` extension
+- **Rust first for backend/core.** Preserve serde names and on-disk JSON compatibility unless a
+  migration is explicitly planned.
+- **`.js` import extensions.** Because of `NodeNext`, relative TypeScript imports must use the `.js` extension
   even for `.ts` files: `import { loadConfig } from "./config.js";`.
 - **No constructor parameter properties.** `erasableSyntaxOnly` is enabled — declare class fields and
   assign them in the constructor body instead of using `constructor(private x: T)`.
-- **Tests beside source** as `*.test.ts`, run with Vitest. Prefer pure, unit-testable functions
-  (e.g. `wt.exe` argv builders are tested via dry-run rather than by spawning processes).
-- **`core/types.ts` is the contract** between layers and must stay free of runtime imports so both
-  Node and browser code can consume it.
+- **Tests beside source.** Rust integration tests live under `rust/**/tests`; TypeScript tests remain
+  as `*.test.ts` and run with Vitest. Prefer pure, unit-testable functions (e.g. `wt.exe` argv
+  builders are tested via dry-run rather than by spawning processes).
+- **`contracts/backend-api.v1.json` and `rust/dcs-core/src/model.rs` are the API/state contracts.**
+  Keep TypeScript contract fixtures in sync when intentionally changing shapes.
 - **Never write to `~/.copilot`.** Treat all Copilot state as **read-only**. Only write under the
   owned state directory (see below).
 - **Atomic writes** for owned state: write to a temp file, then rename.
@@ -39,20 +43,22 @@ picture.
 ## Where things live
 
 ```
+rust/
+├── dcs-core/     # primary backend/domain library
+│   ├── src/model.rs    # serde API/state contracts
+│   ├── src/paths.rs    # Copilot read paths + owned state dir (env-overridable)
+│   ├── src/discovery.rs
+│   ├── src/registry.rs
+│   ├── src/launch.rs
+│   ├── src/manager.rs
+│   └── tests/
+└── dcs/          # `dcs-rs` CLI and Axum API server
+
 src/
-├── core/         # shared domain logic (no Express/React here)
-│   ├── types.ts        # cross-layer types — keep runtime-import-free
-│   ├── paths.ts        # Copilot read paths + owned state dir (env-overridable)
-│   ├── config.ts       # AppConfig defaults + load/save
-│   ├── logger.ts       # JSON-lines logger → state/logs
-│   ├── discovery/      # read ~/.copilot/session-state + liveness
-│   ├── registry/       # durable JSON file-store (sessions + workspaces)
-│   ├── launch/         # build/run wt.exe + copilot --resume
-│   └── snapshot/       # capture/restore + color & window grouping
-├── server/       # Express API, routes under /api
-├── web/          # React + Vite dashboard
-├── cli/          # the `dcs` command set (single index.ts, Commander)
-└── scheduling/   # Windows Scheduled Tasks install/remove (+ hidden VBScript launcher)
+├── web/          # React + Vite dashboard client
+├── core/         # legacy TypeScript implementation used for contract drift tests
+├── server/       # legacy Express API compatibility layer
+└── cli/          # npm launcher + legacy TypeScript CLI code
 ```
 
 ## State directory
@@ -60,7 +66,7 @@ src/
 The tool owns `~/.durable-copilot-sessions/state/` (override with `DCS_STATE_DIR` for hermetic
 tests). It contains `config.json`, `registry/sessions/`, `registry/workspaces/`, `snapshots/`,
 `launch-scripts/`, and `logs/`. Copilot read paths are under `~/.copilot` (override with
-`DCS_COPILOT_HOME`). See `src/core/paths.ts`.
+`DCS_COPILOT_HOME`). See `rust/dcs-core/src/paths.rs`.
 
 ## Run / test / build / lint
 
@@ -71,8 +77,10 @@ tests). It contains `config.json`, `registry/sessions/`, `registry/workspaces/`,
 | Lint | `npm run lint` |
 | Test (once) | `npm test` |
 | Test (watch) | `npm run test:watch` |
-| Build (Node + web) | `npm run build` |
-| **All gates at once** | `npm run check` (typecheck + lint + test + build) |
+| Build (Rust release + Node compatibility + web) | `npm run build` |
+| Rust gates | `npm run rust:check` |
+| Rust smoke | `npm run rust:smoke` |
+| **All gates at once** | `npm run check` (typecheck + lint + test + Rust check + build) |
 | One-shot setup (install + build + link `dcs`) | `npm run setup` |
 | Environment health check | `dcs doctor` |
 | Run CLI from source | `npm run cli -- <args>` (e.g. `npm run cli -- list`) |
