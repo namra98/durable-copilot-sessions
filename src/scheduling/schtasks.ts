@@ -95,9 +95,10 @@ export function buildCreateSnapshotArgs(opts: {
 export function buildCreateLogonArgs(opts: {
   command: string;
   taskName?: string;
+  runAsUser?: string;
 }): string[] {
   const taskName = opts.taskName ?? LOGON_TASK_NAME;
-  return [
+  const args = [
     "/Create",
     "/TN",
     taskName,
@@ -105,10 +106,16 @@ export function buildCreateLogonArgs(opts: {
     "ONLOGON",
     "/TR",
     opts.command,
+  ];
+  if (opts.runAsUser && opts.runAsUser.length > 0) {
+    args.push("/RU", opts.runAsUser);
+  }
+  args.push(
     "/RL",
     "LIMITED",
     "/F",
-  ];
+  );
+  return args;
 }
 
 /** Build the `schtasks` arguments to delete a task by name (forced). */

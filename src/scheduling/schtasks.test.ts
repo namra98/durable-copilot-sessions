@@ -1,4 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 // Mock the durable logger so tests never touch the real filesystem / home dir.
 vi.mock("../core/logger.js", () => ({
@@ -18,7 +21,8 @@ import {
   type TaskExec,
   type TaskExecResult,
 } from "./schtasks.js";
-import { installTasks } from "./tasks.js";
+import { installStartupRestore, startupRestoreScriptPath } from "./startup.js";
+import { installTasks, tasksStatus, uninstallTasks } from "./tasks.js";
 
 /** Build a fake executor that records every call and returns a fixed result. */
 function recordingExec(result: TaskExecResult): {
@@ -33,6 +37,24 @@ function recordingExec(result: TaskExecResult): {
     },
   };
   return { exec, calls };
+}
+
+function sequenceExec(results: TaskExecResult[]): {
+  exec: TaskExec;
+  calls: string[][];
+} {
+  const calls: string[][] = [];
+  const exec: TaskExec = {
+    run(args: string[]): TaskExecResult {
+      calls.push(args);
+      return results[Math.min(calls.length - 1, results.length - 1)] ?? { status: 1 };
+    },
+  };
+  return { exec, calls };
+}
+
+function tempDir(): string {
+  return fs.mkdtempSync(path.join(os.tmpdir(), "dcs-tasks-"));
 }
 
 describe("buildCreateSnapshotArgs", () => {
@@ -90,6 +112,18 @@ describe("buildCreateLogonArgs", () => {
     const trIndex = args.indexOf("/TR");
     expect(args[trIndex + 1]).toBe("X restore-prompt");
   });
+
+  it("scopes an ONLOGON schedule to a run-as user when provided", () => {
+    const args = buildCreateLogonArgs({
+      command: "X restore-prompt",
+      runAsUser: "DOMAIN\\namra",
+    });
+
+    expect(args).toContain("/RU");
+    expect(args[args.indexOf("/RU") + 1]).toBe("DOMAIN\\namra");
+    expect(args.indexOf("/RU")).toBeGreaterThan(args.indexOf("/TR"));
+    expect(args.indexOf("/RU")).toBeLessThan(args.indexOf("/RL"));
+  });
 });
 
 describe("buildDeleteArgs / buildQueryArgs", () => {
@@ -130,5 +164,50 @@ describe("installTasks", () => {
     expect(result.snapshot).toBe(false);
     expect(result.logon).toBe(false);
     expect(result.messages.some((m) => m.includes("boom"))).toBe(true);
+  });
+
+  it("falls back to the current-user Startup folder when logon task registration is denied", () => {
+    const startupDir = tempDir();
+    const { exec, calls } = sequenceExec([
+      { status: 0 },
+      { status: 1, stderr: "ERROR: Access is denied." },
+    ]);
+
+    const result = installTasks({
+      snapshotCommand: "X snapshot",
+      restorePromptCommand: "X restore-prompt",
+      intervalMinutes: 5,
+      exec,
+      runAsUser: "DOMAIN\\namra",
+      startupDir,
+    });
+
+    expect(result).toMatchObject({ snapshot: true, logon: true });
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).toContain("/RU");
+    expect(fs.existsSync(startupRestoreScriptPath(startupDir))).toBe(true);
+    expect(result.messages.some((m) => m.includes("Startup fallback"))).toBe(true);
+  });
+
+  it("counts the Startup fallback as logon restore installed", () => {
+    const startupDir = tempDir();
+    installStartupRestore("X restore-prompt", startupDir);
+    const { exec } = recordingExec({ status: 1, stderr: "not found" });
+
+    expect(tasksStatus({ exec, startupDir })).toEqual({ snapshot: false, logon: true });
+  });
+
+  it("removes the Startup fallback during uninstall", () => {
+    const startupDir = tempDir();
+    installStartupRestore("X restore-prompt", startupDir);
+    const { exec } = recordingExec({
+      status: 1,
+      stderr: "ERROR: The system cannot find the file specified.",
+    });
+
+    const result = uninstallTasks({ exec, startupDir });
+
+    expect(fs.existsSync(startupRestoreScriptPath(startupDir))).toBe(false);
+    expect(result.messages.some((m) => m.includes("Removed Startup fallback"))).toBe(true);
   });
 });

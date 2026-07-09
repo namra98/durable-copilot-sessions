@@ -17,3 +17,11 @@ export type { TaskExec, TaskExecResult } from "./schtasks.js";
 export { installTasks, uninstallTasks, tasksStatus } from "./tasks.js";
 export type { InstallOptions } from "./tasks.js";
 export { writeHiddenLauncher, launchersDir } from "./hidden.js";
+export {
+  STARTUP_RESTORE_SCRIPT_NAME,
+  defaultStartupDir,
+  installStartupRestore,
+  startupRestoreInstalled,
+  startupRestoreScriptPath,
+  uninstallStartupRestore,
+} from "./startup.js";
