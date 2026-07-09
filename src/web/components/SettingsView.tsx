@@ -352,7 +352,7 @@ export function MaintenancePanel({ push }: MaintenancePanelProps) {
     if (!window.confirm("Remove dead-PID lock files for stale sessions?")) return;
     setBusy(true);
     try {
-      const result = await api.cleanStale(true);
+      const result = await api.cleanStale(true, true);
       push("success", `Cleaned ${result.removed} of ${result.stale} stale lock${result.stale === 1 ? "" : "s"}.`);
       refresh();
     } catch (err) {

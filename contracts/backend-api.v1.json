@@ -6,7 +6,7 @@
     "scope": "backend-core-only",
     "frontendStatus": "React dashboard is a temporary consumer; future TUI should bind to this contract.",
     "statePolicy": "Rust backend must preserve existing on-disk JSON formats unless a versioned migration is added.",
-    "copilotStatePolicy": "Copilot session-state is read-only by default; stale-lock cleanup and fork creation remain explicit commands."
+    "copilotStatePolicy": "Copilot session-state is read-only by default; operations that write there must require confirmCopilotStateWrite=true."
   },
   "routes": [
     { "method": "GET", "path": "/health", "response": "HealthResponse" },
@@ -14,7 +14,7 @@
     { "method": "GET", "path": "/logs", "query": ["lines", "level"], "response": "{ logs: LogRecord[] }" },
     { "method": "PUT", "path": "/config", "request": "Partial<AppConfig>", "response": "{ config: AppConfig }" },
     { "method": "GET", "path": "/sessions/stale", "response": "{ sessions: SessionView[] }" },
-    { "method": "POST", "path": "/sessions/clean", "request": "{ remove?: boolean }", "response": "{ stale: number, removed: number }" },
+    { "method": "POST", "path": "/sessions/clean", "request": "{ remove?: boolean, confirmCopilotStateWrite?: boolean }", "response": "{ stale: number, removed: number }" },
     { "method": "GET", "path": "/sessions/:id/transcript", "response": "text/markdown" },
     { "method": "GET", "path": "/workspaces/export", "query": ["ids"], "response": "WorkspaceExport JSON text" },
     { "method": "POST", "path": "/workspaces/import", "request": "{ json: string, freshIds?: boolean }", "response": "{ workspaces: Workspace[] }" },
@@ -25,7 +25,7 @@
     { "method": "POST", "path": "/sessions/:id/resume", "request": "ResumeBody", "response": "LaunchResult" },
     { "method": "POST", "path": "/sessions/resume-batch", "request": "ResumeBatchBody", "response": "LaunchResult" },
     { "method": "POST", "path": "/sessions/new", "request": "NewSessionBody", "response": "LaunchResult" },
-    { "method": "POST", "path": "/sessions/:id/fork", "request": "ForkBody", "response": "ForkResult" },
+    { "method": "POST", "path": "/sessions/:id/fork", "request": "ForkBody with confirmCopilotStateWrite=true", "response": "ForkResult" },
     { "method": "GET", "path": "/sessions/:id", "response": "SessionDetail" },
     { "method": "GET", "path": "/graph", "query": ["filter=open|live|all"], "response": "GraphModel" },
     { "method": "GET", "path": "/memory/search", "query": ["q", "repository", "kind", "limit"], "response": "{ hits: MemorySearchHit[] }" },

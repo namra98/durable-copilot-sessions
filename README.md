@@ -202,12 +202,12 @@ All commands are subcommands of `dcs`.
 | `dcs tasks-status` | Report whether the snapshot + logon-restore tasks are installed. |
 | `dcs restore-last [--window new\|current]` | Restore the most recent auto-snapshot. |
 | `dcs resume-repo <repository> [--window ...]` | Resume every open session matching a repository as one grouped window. |
-| `dcs fork <sessionId>` | Fork a session (records lineage for the Graph view). |
+| `dcs fork <sessionId> --confirm-copilot-state-write` | Fork a session (records lineage for the Graph view). Requires explicit confirmation because it creates a Copilot session-state directory. |
 | `dcs recall <query...>` | Search local memory / chat history for sessions by free text. |
 | `dcs reindex-memory` | Rebuild the local memory/recall index. |
 | `dcs stats` / `dcs transcript <id>` / `dcs diff <workspace>` | Show usage stats, a session transcript, or a workspace-vs-live diff. |
 | `dcs export-workspaces [file]` / `dcs import-workspaces <file>` | Export/import saved workspaces as JSON. |
-| `dcs clean` | Prune stale registry entries. |
+| `dcs clean` | Report stale Copilot locks without modifying Copilot state. `--remove --confirm-copilot-state-write` deletes dead-PID lock files as an explicit escape hatch. |
 | `dcs tray` | Launch the always-on system tray (Windows PowerShell, STA). |
 | `dcs doctor [--json]` | Run environment health checks (wt, PowerShell, copilot, Node, state dirs, tasks). |
 
@@ -326,15 +326,20 @@ The Rust Axum server exposes the JSON API under the `/api` base path (default po
 | Method & path | Purpose |
 | --- | --- |
 | `GET /api/health` | Liveness probe for the server. |
-| `GET /api/sessions?filter=live\|all` | List discovered sessions (default `live`). |
+| `GET /api/sessions?filter=open\|live\|all` | List discovered sessions (default `open`). |
 | `PATCH /api/sessions/:id` | Update managed metadata (title, color, group, pinned, hidden) for a session. |
 | `POST /api/sessions/:id/resume` | Resume a session in a new Windows Terminal tab. |
+| `POST /api/sessions/:id/fork` | Fork a session only when the request includes `confirmCopilotStateWrite: true`. |
 | `GET /api/workspaces` | List saved workspaces. |
 | `POST /api/workspaces` | Save the current layout as a workspace. |
 | `DELETE /api/workspaces/:id` | Delete a saved workspace. |
 | `POST /api/workspaces/:id/restore` | Restore a saved workspace's windows + tabs. |
 | `POST /api/snapshot` | Take a rolling auto‑snapshot now. |
 | `GET /api/config` | Return the effective `AppConfig`. |
+
+Mutating API routes reject cross-site browser requests. Browser-based clients should call the API
+from a loopback origin (`localhost`, `127.0.0.1`, or `[::1]`); CLI and same-origin local clients do
+not need extra headers.
 
 ---
 
@@ -353,7 +358,7 @@ effective config is also available from `GET /api/config`.
 | `snapshotIntervalMinutes` | `number` | `5` | Minutes between background auto‑snapshots. |
 | `maxAutoSnapshots` | `number` | `50` | Maximum number of rolling auto‑snapshots to retain. |
 | `colorStrategy` | `"by-repo" \| "by-cwd" \| "rotate" \| "fixed"` | `"by-repo"` | How tab colors are auto‑assigned when you haven't chosen one. |
-| `autoOpenBrowser` | `boolean` | `true` | Open the browser automatically on `dcs ui`. |
+| `autoOpenBrowser` | `boolean` | `true` | Open the browser automatically for visible UI flows such as `restore-prompt`. |
 | `windowGrouping` | `"by-repo" \| "by-cwd" \| "single"` | `"by-repo"` | How discovered sessions are grouped into windows on restore. |
 | `copilotCommand` | `string` | `"copilot"` | Executable used to launch/resume a session (e.g. `"agency"` to wrap Copilot with MCP servers). |
 | `copilotArgs` | `string[]` | `[]` | Extra args inserted before `--resume` (e.g. `["copilot","--mcp","workiq",...,"--yolo"]`). |
@@ -440,6 +445,7 @@ Common scripts (see [`package.json`](package.json)):
 | `npm test` | Run the Vitest suite once. |
 | `npm run rust:check` | Run Rust fmt, clippy, tests, and debug build. |
 | `npm run rust:smoke` | Run the Rust large-session discovery smoke test. |
+| `npm run smoke:launcher` | Run the built npm `dcs` launcher and verify it can find the Rust binary. |
 | `npm run test:watch` | Run Vitest in watch mode. |
 | `npm run cli -- <args>` | Run the Rust CLI from source via Cargo (e.g. `npm run cli -- list`). |
 

@@ -2,6 +2,7 @@ use std::fs;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use dcs_core::doctor::run_doctor;
 use dcs_core::manager::SessionManager;
@@ -115,6 +116,7 @@ fn fork_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
         launch: Some(args.take_flag("--launch")),
         color: args.take_option("--color"),
         window: parse_window(args.take_option("--window"))?,
+        confirm_copilot_state_write: Some(args.take_flag("--confirm-copilot-state-write")),
     };
     let result = manager()?.fork_session(&session_id, body, dry_run)?;
     println!("Forked -> {}", result.fork.new_session_id);
@@ -321,7 +323,11 @@ async fn restore_prompt_command() -> Result<(), Box<dyn std::error::Error>> {
         print_launch(manager.restore_workspace(&latest.id, None, false)?);
         return Ok(());
     }
-    serve_on(paths, config.api_port).await
+    let url = format!("http://127.0.0.1:{}/restore-prompt", config.api_port);
+    if config.auto_open_browser {
+        open_local_url_after_delay(url.clone());
+    }
+    serve_on(paths, config.api_port, Some(&url)).await
 }
 
 fn new_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
@@ -363,7 +369,8 @@ fn clean_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let remove = args.take_flag("--remove");
     let result = manager()?.clean_stale(CleanStaleBody {
         remove: Some(remove),
-    });
+        confirm_copilot_state_write: Some(args.take_flag("--confirm-copilot-state-write")),
+    })?;
     println!(
         "Stale sessions: {}{}",
         result["stale"].as_u64().unwrap_or(0),
@@ -373,7 +380,7 @@ fn clean_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
                 result["removed"].as_u64().unwrap_or(0)
             )
         } else {
-            " (use --remove to delete dead-PID locks).".into()
+            " (stale locks are reported without modifying Copilot state).".into()
         }
     );
     Ok(())
@@ -394,7 +401,7 @@ fn stats_command() -> Result<(), Box<dyn std::error::Error>> {
 
 fn transcript_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let session_id = required_arg(&mut args, "sessionId")?;
-    let markdown = manager()?.transcript(&session_id);
+    let markdown = manager()?.transcript(&session_id)?;
     if let Some(out) = args.take_option("--out").or_else(|| args.take_option("-o")) {
         fs::write(&out, markdown)?;
         println!("Wrote {out}");
@@ -427,7 +434,7 @@ fn logs_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
 fn export_workspaces_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let out = args.take_next();
-    let json = manager()?.export_workspaces()?;
+    let json = manager()?.export_workspaces(None)?;
     if let Some(file) = out {
         fs::write(&file, json)?;
         println!("Wrote {file}");
@@ -592,10 +599,27 @@ fn doctor_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn serve_on(paths: DcsPaths, port: u16) -> Result<(), Box<dyn std::error::Error>> {
+async fn serve_on(
+    paths: DcsPaths,
+    port: u16,
+    url: Option<&str>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
-    println!("Open http://{addr} to review and restore.");
+    println!(
+        "Open {} to review and restore.",
+        url.map(ToOwned::to_owned)
+            .unwrap_or_else(|| format!("http://{addr}"))
+    );
     dcs_rs::server::serve(dcs_rs::server::ServerOptions { addr, paths }).await
+}
+
+fn open_local_url_after_delay(url: String) {
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(500));
+        if let Err(error) = Command::new("cmd").args(["/C", "start", "", &url]).spawn() {
+            eprintln!("Failed to open {url}: {error}");
+        }
+    });
 }
 
 fn manager() -> Result<SessionManager, Box<dyn std::error::Error>> {
@@ -686,7 +710,7 @@ fn print_sessions(sessions: &[dcs_core::model::SessionView], tree: bool, open_co
 
 fn print_help() {
     println!(
-        "Durable Copilot Sessions (Rust)\n\nCommands:\n  list [--live|--all] [--tree]\n  resume <sessionId> [--window new|current] [--color color] [--title title] [--dry-run]\n  fork <sessionId> [--note text] [--launch] [--color color] [--window new|current] [--dry-run]\n  recall <query...> [--repo repository] [--kind kind] [--limit n]\n  reindex-memory\n  save <name> [--all] [--description text]\n  restore <nameOrId> [--window new|current] [--dry-run]\n  resume-repo <repository> [--window new|current] [--dry-run]\n  restore-last [--window new|current] [--dry-run]\n  snapshot\n  restore-prompt\n  ui [--port n]\n  serve [--port n]\n  new <title> [--cwd dir] [--color color] [--prompt text] [--window new|current] [--dry-run]\n  clean [--remove]\n  stats\n  transcript <sessionId> [-o|--out file]\n  logs [--lines n] [--level level]\n  export-workspaces [file]\n  import-workspaces <file> [--fresh-ids]\n  diff <workspace>\n  tray\n  install-tasks [--interval minutes] [--no-hidden]\n  uninstall-tasks\n  tasks-status\n  doctor [--json]"
+        "Durable Copilot Sessions (Rust)\n\nCommands:\n  list [--live|--all] [--tree]\n  resume <sessionId> [--window new|current] [--color color] [--title title] [--dry-run]\n  fork <sessionId> [--note text] [--launch] [--color color] [--window new|current] [--dry-run] --confirm-copilot-state-write\n  recall <query...> [--repo repository] [--kind kind] [--limit n]\n  reindex-memory\n  save <name> [--all] [--description text]\n  restore <nameOrId> [--window new|current] [--dry-run]\n  resume-repo <repository> [--window new|current] [--dry-run]\n  restore-last [--window new|current] [--dry-run]\n  snapshot\n  restore-prompt\n  ui [--port n]\n  serve [--port n]\n  new <title> [--cwd dir] [--color color] [--prompt text] [--window new|current] [--dry-run]\n  clean [--remove --confirm-copilot-state-write]\n  stats\n  transcript <sessionId> [-o|--out file]\n  logs [--lines n] [--level level]\n  export-workspaces [file]\n  import-workspaces <file> [--fresh-ids]\n  diff <workspace>\n  tray\n  install-tasks [--interval minutes] [--no-hidden]\n  uninstall-tasks\n  tasks-status\n  doctor [--json]"
     );
 }
 

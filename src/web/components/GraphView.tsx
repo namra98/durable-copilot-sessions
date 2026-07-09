@@ -224,6 +224,7 @@ function GraphCanvas({ initialFilter, windowTarget, push, onShowRelated, onOpenS
           launch,
           color: target.color,
           window: windowTarget,
+          confirmCopilotStateWrite: true,
         });
         setForkTarget(null);
         const launched = result.launch?.ok ? " · launched" : "";

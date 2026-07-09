@@ -72,6 +72,41 @@ async fn json_response(
     (status, value)
 }
 
+async fn text_response(app: axum::Router, method: &str, uri: &str) -> (StatusCode, String) {
+    let request = Request::builder()
+        .method(method)
+        .uri(uri)
+        .body(Body::empty())
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let text = String::from_utf8(bytes.to_vec()).unwrap();
+    (status, text)
+}
+
+async fn json_response_with_header(
+    app: axum::Router,
+    method: &str,
+    uri: &str,
+    header_name: &str,
+    header_value: &str,
+    body: Option<&str>,
+) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("content-type", "application/json")
+        .header(header_name, header_value)
+        .body(Body::from(body.unwrap_or_default().to_owned()))
+        .unwrap();
+    let response = app.oneshot(request).await.unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let value = serde_json::from_slice::<Value>(&bytes).unwrap();
+    (status, value)
+}
+
 #[tokio::test]
 async fn sessions_and_graph_routes_use_frozen_envelopes_and_ordering() {
     let root = temp_root();
@@ -107,6 +142,39 @@ async fn sessions_and_graph_routes_use_frozen_envelopes_and_ordering() {
 }
 
 #[tokio::test]
+async fn mutating_routes_reject_cross_site_browser_requests() {
+    let root = temp_root();
+    let app = router(Arc::new(Mutex::new(fixture_manager(&root))));
+
+    let (status, blocked) = json_response_with_header(
+        app.clone(),
+        "POST",
+        "/api/workspaces",
+        "sec-fetch-site",
+        "cross-site",
+        Some(r#"{"name":"blocked","windows":[]}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(blocked["error"].as_str().unwrap().contains("Cross-site"));
+
+    let (status, created) = json_response_with_header(
+        app.clone(),
+        "POST",
+        "/api/workspaces",
+        "origin",
+        "http://localhost:4516",
+        Some(r#"{"name":"local","windows":[]}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(created["workspace"]["name"], "local");
+
+    drop(app);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
 async fn config_logs_memory_and_workspace_routes_keep_response_wrappers() {
     let root = temp_root();
     let app = router(Arc::new(Mutex::new(fixture_manager(&root))));
@@ -132,13 +200,112 @@ async fn config_logs_memory_and_workspace_routes_keep_response_wrappers() {
     assert_eq!(status, StatusCode::OK);
     assert!(workspaces["workspaces"].is_array());
 
+    let (status, created) = json_response(
+        app.clone(),
+        "POST",
+        "/api/workspaces",
+        Some(r#"{"name":"second","windows":[]}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(created["workspace"]["name"], "second");
+
+    let (status, exported) = json_response(
+        app.clone(),
+        "GET",
+        "/api/workspaces/export?ids=workspace-morning",
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(exported["workspaces"].as_array().unwrap().len(), 1);
+    assert_eq!(exported["workspaces"][0]["id"], "workspace-morning");
+
     let (status, snapshots) = json_response(app.clone(), "GET", "/api/snapshots", None).await;
     assert_eq!(status, StatusCode::OK);
     assert!(snapshots["snapshots"].is_array());
 
+    let (status, restore_prompt) = text_response(app.clone(), "GET", "/restore-prompt").await;
+    assert_eq!(status, StatusCode::OK);
+    assert!(restore_prompt.contains("<title>Restore Copilot sessions</title>"));
+    assert!(restore_prompt.contains("Restore latest snapshot"));
+
     let (status, unknown) = json_response(app.clone(), "GET", "/api/does-not-exist", None).await;
     assert_eq!(status, StatusCode::NOT_FOUND);
     assert_eq!(unknown["error"], "Not found");
+
+    drop(app);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[tokio::test]
+async fn promotes_requested_snapshot_and_validates_sensitive_inputs() {
+    let root = temp_root();
+    let app = router(Arc::new(Mutex::new(fixture_manager(&root))));
+    let newer_snapshot = root
+        .join("state")
+        .join("snapshots")
+        .join("2026-07-09T01-00-00-000Z-newer-snapshot.json");
+    fs::write(
+        newer_snapshot,
+        r#"{
+  "id": "newer-snapshot",
+  "name": "newer",
+  "source": "auto-snapshot",
+  "createdAt": "2026-07-09T01:00:00.000Z",
+  "updatedAt": "2026-07-09T01:00:00.000Z",
+  "windows": []
+}"#,
+    )
+    .unwrap();
+
+    let (status, promoted) = json_response(
+        app.clone(),
+        "POST",
+        "/api/workspaces/snapshot-open/promote",
+        Some(r#"{"name":"selected snapshot"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED);
+    assert_eq!(promoted["workspace"]["name"], "selected snapshot");
+    assert_eq!(
+        promoted["workspace"]["windows"].as_array().unwrap().len(),
+        1
+    );
+
+    let (status, transcript) =
+        json_response(app.clone(), "GET", "/api/sessions/bad.id/transcript", None).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(transcript["error"]
+        .as_str()
+        .unwrap()
+        .contains("Invalid session id"));
+
+    let (status, clean) = json_response(
+        app.clone(),
+        "POST",
+        "/api/sessions/clean",
+        Some(r#"{"remove":true}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(clean["error"]
+        .as_str()
+        .unwrap()
+        .contains("confirmCopilotStateWrite"));
+
+    let (status, fork) = json_response(
+        app.clone(),
+        "POST",
+        "/api/sessions/11111111-1111-1111-1111-111111111111/fork?dryRun=true",
+        Some(r#"{"note":"blocked by default"}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+    assert!(fork["error"]
+        .as_str()
+        .unwrap()
+        .contains("confirmCopilotStateWrite"));
 
     drop(app);
     fs::remove_dir_all(root).unwrap();
@@ -153,7 +320,7 @@ async fn fork_and_new_session_routes_preserve_launch_contracts() {
         app.clone(),
         "POST",
         "/api/sessions/11111111-1111-1111-1111-111111111111/fork?dryRun=true",
-        Some(r#"{"note":"trying rust","launch":true,"color":"green","window":"current"}"#),
+        Some(r#"{"note":"trying rust","launch":true,"color":"green","window":"current","confirmCopilotStateWrite":true}"#),
     )
     .await;
     assert_eq!(status, StatusCode::OK);

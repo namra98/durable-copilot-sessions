@@ -168,33 +168,13 @@ fn read_liveness(session_dir: &Path, snapshot: &ProcessSnapshot) -> Liveness {
 }
 
 fn pid_is_live_copilot(pid: u32, snapshot: &ProcessSnapshot) -> bool {
-    if !snapshot.is_empty() {
-        let Some(name) = snapshot.get(&pid) else {
-            return false;
-        };
-        return name.contains("copilot") || name.contains("node");
-    }
-    is_pid_alive(pid)
-}
-
-fn is_pid_alive(pid: u32) -> bool {
-    if pid == 0 {
+    if snapshot.is_empty() {
         return false;
     }
-    let Ok(output) = Command::new("tasklist")
-        .args(["/fi", &format!("pid eq {pid}"), "/fo", "csv", "/nh"])
-        .output()
-    else {
+    let Some(name) = snapshot.get(&pid) else {
         return false;
     };
-    if !output.status.success() {
-        return false;
-    }
-    String::from_utf8_lossy(&output.stdout).lines().any(|line| {
-        parse_tasklist_csv_line(line)
-            .map(|(_, found_pid)| found_pid == pid)
-            .unwrap_or(false)
-    })
+    name.contains("copilot") || name.contains("node")
 }
 
 fn lock_pid(file_name: &str) -> Option<u32> {

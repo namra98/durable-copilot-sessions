@@ -19,7 +19,7 @@
     "build:node": "tsc -p tsconfig.node.json",
     "build:web": "vite build",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
-    "check": "npm run typecheck && npm run lint && npm test && npm run rust:check && npm run build",
+    "check": "npm run typecheck && npm run lint && npm test && npm run rust:check && npm run build && npm run smoke:launcher",
     "setup": "npm install && npm run build && npm link",
     "start": "node dist/cli/rust-bin.js serve",
     "cli": "cargo run -p dcs-rs --",
@@ -31,6 +31,7 @@
     "rust:smoke": "cargo test --test perf_smoke -- --nocapture",
     "rust:build": "cargo build --all",
     "rust:check": "npm run rust:fmt && npm run rust:lint && npm run rust:test && npm run rust:build",
+    "smoke:launcher": "node dist/cli/rust-bin.js --help",
     "test": "vitest run",
     "test:watch": "vitest"
   },

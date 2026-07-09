@@ -25,8 +25,8 @@ use crate::model::{
 };
 use crate::paths::DcsPaths;
 use crate::registry::{
-    diff_workspace, export_workspaces, load_config, parse_workspace_export, save_config,
-    CreateWorkspaceInput, ManagedSessionPatch, Registry, RegistryDirs,
+    diff_workspace, export_workspaces, is_safe_id, load_config, parse_workspace_export,
+    save_config, CreateWorkspaceInput, ManagedSessionPatch, Registry, RegistryDirs,
 };
 use crate::stats::compute_stats;
 use crate::transcript::export_transcript;
@@ -375,11 +375,15 @@ impl SessionManager {
         ))
     }
 
-    pub fn export_workspaces(&self) -> Result<String, ManagerError> {
-        Ok(export_workspaces(
-            self.registry.list_workspaces(),
-            now_iso(),
-        )?)
+    pub fn export_workspaces(&self, ids: Option<&[String]>) -> Result<String, ManagerError> {
+        let workspaces = if let Some(ids) = ids {
+            ids.iter()
+                .map(|id| self.get_workspace(id))
+                .collect::<Result<Vec<_>, _>>()?
+        } else {
+            self.registry.list_workspaces()
+        };
+        Ok(export_workspaces(workspaces, now_iso())?)
     }
 
     pub fn import_workspaces(
@@ -401,13 +405,29 @@ impl SessionManager {
         Ok(saved)
     }
 
-    pub fn promote_snapshot(&self, name: String) -> Result<Workspace, ManagerError> {
+    pub fn promote_latest_snapshot(&self, name: String) -> Result<Workspace, ManagerError> {
+        let snapshot = self.latest_snapshot()?;
+        self.promote_workspace_snapshot(snapshot, name)
+    }
+
+    pub fn promote_snapshot(&self, id: &str, name: String) -> Result<Workspace, ManagerError> {
+        let snapshot = self
+            .registry
+            .get_snapshot(id)
+            .ok_or_else(|| ManagerError::MissingWorkspace(id.into()))?;
+        self.promote_workspace_snapshot(snapshot, name)
+    }
+
+    fn promote_workspace_snapshot(
+        &self,
+        mut snapshot: Workspace,
+        name: String,
+    ) -> Result<Workspace, ManagerError> {
         if name.trim().is_empty() {
             return Err(ManagerError::InvalidInput(
                 "Workspace name is required.".into(),
             ));
         }
-        let mut snapshot = self.latest_snapshot()?;
         snapshot.id = Uuid::new_v4().to_string();
         snapshot.name = name;
         snapshot.source = WorkspaceSource::Manual;
@@ -465,11 +485,19 @@ impl SessionManager {
         tail_logs(&self.paths.logs_dir, lines, level)
     }
 
-    pub fn transcript(&self, session_id: &str) -> String {
-        export_transcript(&self.paths.copilot_session_state_dir, session_id)
+    pub fn transcript(&self, session_id: &str) -> Result<String, ManagerError> {
+        if !is_safe_id(session_id) {
+            return Err(ManagerError::InvalidInput(format!(
+                "Invalid session id: {session_id:?}"
+            )));
+        }
+        Ok(export_transcript(
+            &self.paths.copilot_session_state_dir,
+            session_id,
+        ))
     }
 
-    pub fn clean_stale(&self, body: CleanStaleBody) -> serde_json::Value {
+    pub fn clean_stale(&self, body: CleanStaleBody) -> Result<serde_json::Value, ManagerError> {
         let stale = self
             .all_discovered_sessions()
             .into_iter()
@@ -477,11 +505,12 @@ impl SessionManager {
             .collect::<Vec<_>>();
         let mut removed = 0u32;
         if body.remove.unwrap_or(false) {
+            require_copilot_state_write_confirmation(body.confirm_copilot_state_write)?;
             for session in &stale {
                 removed += remove_lock_files(&self.paths.copilot_session_state_dir, &session.id);
             }
         }
-        serde_json::json!({ "stale": stale.len(), "removed": removed })
+        Ok(serde_json::json!({ "stale": stale.len(), "removed": removed }))
     }
 
     pub fn new_session(
@@ -516,6 +545,7 @@ impl SessionManager {
         body: ForkBody,
         dry_run: bool,
     ) -> Result<ForkResult, ManagerError> {
+        require_copilot_state_write_confirmation(body.confirm_copilot_state_write)?;
         let fork = branch_session(
             &self.paths.copilot_session_state_dir,
             id,
@@ -687,4 +717,15 @@ fn remove_lock_files(session_state_dir: &Path, session_id: &str) -> u32 {
         }
     }
     removed
+}
+
+fn require_copilot_state_write_confirmation(confirmed: Option<bool>) -> Result<(), ManagerError> {
+    confirmed
+        .filter(|confirmed| *confirmed)
+        .map(|_| ())
+        .ok_or_else(|| {
+            ManagerError::InvalidInput(
+                "This operation writes to Copilot-owned session state. Set confirmCopilotStateWrite=true to acknowledge the risk.".into(),
+            )
+        })
 }

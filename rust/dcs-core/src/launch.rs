@@ -201,7 +201,7 @@ pub fn plan_resume_session(
     let args = build_window_args(
         opts.window.unwrap_or(WindowTarget::New),
         &[built],
-        "powershell.exe",
+        default_shell(),
     )?;
     Ok(LaunchPlan {
         args: vec![args],
@@ -248,7 +248,7 @@ pub fn plan_new_session(
     let args = build_window_args(
         opts.window.unwrap_or(WindowTarget::New),
         &[built],
-        "powershell.exe",
+        default_shell(),
     )?;
     Ok(LaunchPlan {
         args: vec![args],
@@ -298,7 +298,7 @@ pub fn plan_launch_windows(
             built_tabs.push(BuiltTab { spec, script_path });
         }
         tabs_launched += built_tabs.len() as u32;
-        args.push(build_window_args(target, &built_tabs, "powershell.exe")?);
+        args.push(build_window_args(target, &built_tabs, default_shell())?);
     }
 
     Ok(LaunchPlan {
@@ -366,6 +366,16 @@ where
     } else {
         "powershell.exe"
     }
+}
+
+pub fn default_shell() -> &'static str {
+    pick_shell(resolve_executable)
+}
+
+pub fn resolve_executable(name: &str) -> Option<String> {
+    let path_value = std::env::var("PATH").unwrap_or_default();
+    resolve_executable_in_path(name, &path_value, std::env::var("PATHEXT").ok().as_deref())
+        .map(|path| path.to_string_lossy().into_owned())
 }
 
 pub fn copilot_missing_warning<F>(resolve: F) -> Option<String>

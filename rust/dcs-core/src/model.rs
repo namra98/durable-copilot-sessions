@@ -371,9 +371,12 @@ pub struct RestoreBody {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CleanStaleBody {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remove: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirm_copilot_state_write: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -390,6 +393,7 @@ pub struct PromoteSnapshotBody {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ForkBody {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
@@ -399,6 +403,8 @@ pub struct ForkBody {
     pub color: Option<TabColor>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<WindowTarget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confirm_copilot_state_write: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

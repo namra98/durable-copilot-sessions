@@ -205,6 +205,7 @@ export function SessionDrawer(props: SessionDrawerProps) {
         launch: forkLaunch,
         color: session.color ?? resolveColor(session),
         window: windowTarget,
+        confirmCopilotStateWrite: true,
       });
       setForkOpen(false);
       setForkNote("");

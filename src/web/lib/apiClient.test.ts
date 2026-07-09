@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  cleanStale,
   exportWorkspaces,
+  forkSession,
   getConfig,
   getGraph,
   getSessionDetail,
@@ -336,5 +338,47 @@ describe("api client", () => {
     const result = await getStale();
     expect(mockFetch.mock.calls[0][0]).toBe("/api/sessions/stale");
     expect(result).toEqual(sessions);
+  });
+
+  it("cleanStale includes explicit Copilot state write confirmation when requested", async () => {
+    const mockFetch = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(makeResponse({ stale: 2, removed: 1 })),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await cleanStale(true, true);
+
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/sessions/clean");
+    const init = mockFetch.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      remove: true,
+      confirmCopilotStateWrite: true,
+    });
+    expect(result).toEqual({ stale: 2, removed: 1 });
+  });
+
+  it("forkSession forwards explicit Copilot state write confirmation", async () => {
+    const response = {
+      session: { id: "fork", cwd: "C:\\repo", cwdExists: true, liveness: "inactive", livePids: [], topLevel: true, managed: false },
+      fork: { newSessionId: "fork", newSessionName: "Fork", newSessionPath: "C:\\state\\fork", parentId: "parent" },
+    };
+    const mockFetch = vi.fn(
+      (_input: RequestInfo | URL, _init?: RequestInit): Promise<Response> =>
+        Promise.resolve(makeResponse(response)),
+    );
+    vi.stubGlobal("fetch", mockFetch);
+
+    const result = await forkSession("parent", { note: "try it", confirmCopilotStateWrite: true });
+
+    expect(mockFetch.mock.calls[0][0]).toBe("/api/sessions/parent/fork");
+    const init = mockFetch.mock.calls[0][1] as RequestInit;
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({
+      note: "try it",
+      confirmCopilotStateWrite: true,
+    });
+    expect(result).toEqual(response);
   });
 });

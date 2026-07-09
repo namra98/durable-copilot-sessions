@@ -309,11 +309,14 @@ export async function getStale(): Promise<SessionView[]> {
   return data.sessions;
 }
 
-/** `POST /api/sessions/clean` -> the count of stale sessions (optionally removed). */
-export function cleanStale(remove = false): Promise<{ stale: number; removed: number }> {
+/** `POST /api/sessions/clean` -> the count of stale sessions (optionally removed with confirmation). */
+export function cleanStale(
+  remove = false,
+  confirmCopilotStateWrite = false,
+): Promise<{ stale: number; removed: number }> {
   return request<{ stale: number; removed: number }>("/sessions/clean", {
     method: "POST",
-    body: JSON.stringify({ remove }),
+    body: JSON.stringify({ remove, confirmCopilotStateWrite }),
   });
 }
 
@@ -395,6 +398,8 @@ export interface ForkBody {
   color?: TabColor;
   /** Which window to target when launching. */
   window?: WindowTarget;
+  /** Required when creating a fork because it writes a Copilot session-state directory. */
+  confirmCopilotStateWrite?: boolean;
 }
 
 /** Result of `POST /api/sessions/:id/fork`. */

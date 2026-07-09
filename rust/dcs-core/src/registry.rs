@@ -286,6 +286,18 @@ impl Registry {
             .find_map(read_json)
     }
 
+    pub fn get_snapshot(&self, id: &str) -> Option<Workspace> {
+        if !is_safe_id(id) {
+            return None;
+        }
+        snapshot_files_newest_first(&self.dirs.snapshots_dir)
+            .into_iter()
+            .find_map(|file| {
+                let snapshot: Workspace = read_json(file)?;
+                (snapshot.id == id).then_some(snapshot)
+            })
+    }
+
     fn prune_snapshots(&self, retain: usize) -> Result<(), RegistryError> {
         for file in snapshot_files_newest_first(&self.dirs.snapshots_dir)
             .into_iter()

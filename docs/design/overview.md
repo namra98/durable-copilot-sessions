@@ -51,7 +51,7 @@ contract directly.
 | `rust/dcs-core/src/registry.rs` | `AppConfig` defaults plus atomic JSON stores for managed sessions, workspaces, snapshots, exports, and imports. |
 | `rust/dcs-core/src/discovery.rs` | Scans `~/.copilot/session-state/*/workspace.yaml`, classifies liveness from `inuse.<pid>.lock` + PID checks, flags top-level interactive sessions, and live-first sorts. |
 | `rust/dcs-core/src/launch.rs` | Pure argv/script builders + runner for `wt.exe` commands that resume sessions; supports color maps, window grouping, dry-run, cwd fallback, and executable preflight. |
-| `rust/dcs-core/src/manager.rs` | Facade that composes discovery, registry, launch, graph, memory, stats, logs/transcripts, fork/new-session, and workspace operations for HTTP/CLI callers. |
+| `rust/dcs-core/src/manager.rs` | Facade that composes discovery, registry, launch, graph, memory, stats, logs/transcripts, fork/new-session, and workspace operations for HTTP/CLI callers. Any operation that writes Copilot-owned state requires explicit confirmation. |
 | `rust/dcs-core/src/memory.rs` | Local SQLite/FTS5 memory extraction, indexing, search, related-session lookup, and recall context. |
 | `rust/dcs-core/src/scheduling.rs` | Windows Scheduled Tasks argument builders, executor seam, and hidden VBScript launcher generation. |
 
@@ -144,6 +144,10 @@ Copilot's own state, read but never written, lives under `~/.copilot/` (override
 │       └── inuse.<pid>.lock     # liveness signal (PID holding the session)
 └── session-store.db             # SQLite index (optional summary enrichment)
 ```
+
+The only exceptions are explicit escape-hatch operations such as fork creation or stale-lock
+deletion, and those require `confirmCopilotStateWrite=true` (or the matching CLI flag) before they
+touch `~/.copilot/session-state`.
 
 ## Design notes & limitations
 
