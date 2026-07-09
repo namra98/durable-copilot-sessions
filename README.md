@@ -175,8 +175,8 @@ dcs install-tasks --interval 5
 
 Now your layout is captured every few minutes, and after the next forced restart you'll be prompted
 to restore it. The installer does not require admin rights: the logon task is scoped to the current
-Windows user, and if Windows still denies it, `dcs` installs a current-user Startup-folder fallback
-for the restore prompt instead.
+Windows user, and if Windows still denies it, `dcs` installs a fallback in the current user's
+Windows Startup known folder for the restore prompt instead.
 
 ---
 
@@ -195,9 +195,9 @@ All commands are subcommands of `dcs`.
 | `dcs ui` | Start the local API server and open the web dashboard in the browser. |
 | `dcs serve [--port <n>]` | Start the API server **without** opening a browser. |
 | `dcs new <title> [--cwd <dir>] [--color <c>] [--prompt <p>]` | Launch a brand‑new managed Copilot session in a Windows Terminal tab. |
-| `dcs install-tasks [--interval <minutes>] [--no-hidden]` | Register the periodic snapshot task + current-user logon restore prompt. Runs hidden (no console flash) by default; `--no-hidden` shows a window. Falls back to the current user's Startup folder if Windows denies the logon Scheduled Task. |
+| `dcs install-tasks [--interval <minutes>] [--no-hidden]` | Register the periodic snapshot task + current-user logon restore prompt. Runs hidden (no console flash) by default; `--no-hidden` shows a window. Falls back to the current user's Windows Startup known folder if Windows denies the logon Scheduled Task. |
 | `dcs uninstall-tasks` | Remove the Scheduled Tasks and any Startup-folder fallback. |
-| `dcs tasks-status` | Report whether snapshot + logon restore are installed. |
+| `dcs tasks-status` | Report whether snapshot, the logon Scheduled Task, and any Startup fallback are installed. |
 | `dcs restore-last [--window new\|current]` | Restore the most recent auto-snapshot. |
 | `dcs resume-repo <repository> [--window ...]` | Resume every open session matching a repository as one grouped window. |
 | `dcs fork <sessionId>` | Fork a session (records lineage for the Graph view). |
@@ -247,7 +247,7 @@ flowchart TB
     api --> registry["core/registry<br/>owned JSON state store"]
     api --> launch["core/launch<br/>wt.exe + copilot --resume"]
     api --> snapshot["core/snapshot<br/>capture &amp; restore"]
-    api --> scheduling["scheduling<br/>Windows Scheduled Tasks"]
+    api --> scheduling["scheduling<br/>Scheduled Tasks + Startup fallback"]
 
     discovery --> d1["~/.copilot/session-state<br/>(read-only)"]
     registry --> d2["~/.durable-copilot-sessions/state"]
@@ -265,7 +265,7 @@ flowchart TB
 | `server` | Express API that exposes sessions, workspaces, resume, snapshot, restore, and config. |
 | `web` | React dashboard that talks to the API. |
 | `cli` | The `dcs` command set. |
-| `scheduling` | Install/remove Windows Scheduled Tasks for periodic snapshots and the logon restore prompt. |
+| `scheduling` | Install/remove Windows Scheduled Tasks for periodic snapshots and the logon restore prompt, with a current-user Startup fallback when ONLOGON registration is denied. |
 
 See [`docs/design/overview.md`](docs/design/overview.md) for a deeper walkthrough and the on‑disk
 state layout, and [`docs/design/session-graph-canvas.md`](docs/design/session-graph-canvas.md) for the

@@ -422,7 +422,7 @@ function buildProgram(): Command {
 
   program
     .command("install-tasks")
-    .description("Register Windows Scheduled Tasks: periodic snapshot + logon restore prompt")
+    .description("Register periodic snapshot + logon restore automation")
     .option("--interval <minutes>", "snapshot interval in minutes", "5")
     .option("--no-hidden", "show a console window each time the snapshot task runs")
     .action((opts: { interval: string; hidden?: boolean }) => {
@@ -443,7 +443,7 @@ function buildProgram(): Command {
 
   program
     .command("uninstall-tasks")
-    .description("Remove the durable-copilot-sessions Scheduled Tasks")
+    .description("Remove Scheduled Tasks and any Startup fallback")
     .action(() => {
       const res = uninstallTasks();
       for (const m of res.messages) console.log(m);
@@ -451,10 +451,12 @@ function buildProgram(): Command {
 
   program
     .command("tasks-status")
-    .description("Show whether the Scheduled Tasks are installed")
+    .description("Show snapshot, logon task, and Startup fallback status")
     .action(() => {
       const s = tasksStatus();
       console.log(`Snapshot task:      ${s.snapshot ? "installed" : "not installed"}`);
+      console.log(`Logon task:         ${s.logonTask ? "installed" : "not installed"}`);
+      console.log(`Startup fallback:   ${s.startupFallback ? "installed" : "not installed"}`);
       console.log(`Logon restore:      ${s.logon ? "installed" : "not installed"}`);
     });
 

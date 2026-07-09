@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   installStartupRestore,
+  resolveStartupDir,
   startupRestoreInstalled,
   startupRestoreScriptPath,
   uninstallStartupRestore,
@@ -34,5 +35,39 @@ describe("Startup restore fallback", () => {
     expect(uninstallStartupRestore(dir)).toBe(true);
     expect(uninstallStartupRestore(dir)).toBe(false);
     expect(startupRestoreInstalled(dir)).toBe(false);
+  });
+
+  it("does not count a non-file fallback path as installed", () => {
+    const dir = tempDir();
+    fs.mkdirSync(startupRestoreScriptPath(dir));
+
+    expect(startupRestoreInstalled(dir)).toBe(false);
+  });
+
+  it("resolves Startup from the trusted known-folder before any fallback path", () => {
+    expect(
+      resolveStartupDir({
+        knownFolder: () => "C:\\Users\\namra\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup",
+        homeDir: () => "C:\\Users\\other",
+      }),
+    ).toBe("C:\\Users\\namra\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup");
+  });
+
+  it("falls back to the current user's home directory when the known folder is unavailable", () => {
+    expect(
+      resolveStartupDir({
+        knownFolder: () => undefined,
+        homeDir: () => "C:\\Users\\namra",
+      }),
+    ).toBe("C:\\Users\\namra\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Startup");
+  });
+
+  it("rejects non-absolute Startup fallback paths", () => {
+    expect(() =>
+      resolveStartupDir({
+        knownFolder: () => "relative\\Startup",
+        homeDir: () => "C:\\Users\\namra",
+      }),
+    ).toThrow(/absolute Startup fallback path/);
   });
 });

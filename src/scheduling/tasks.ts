@@ -1,3 +1,4 @@
+import os from "node:os";
 import { log } from "../core/logger.js";
 import {
   buildCreateLogonArgs,
@@ -18,10 +19,10 @@ import {
 } from "./startup.js";
 
 /**
- * High-level install/uninstall/status operations for the two Windows Scheduled
- * Tasks that keep a Copilot session layout durable across reboots:
- *   - a periodic auto-snapshot task, and
- *   - a logon restore-prompt task.
+ * High-level install/uninstall/status operations for Windows logon durability:
+ *   - a periodic auto-snapshot Scheduled Task, and
+ *   - logon restore-prompt automation via an ONLOGON Scheduled Task or, when
+ *     Windows denies that trigger, a current-user Startup-folder fallback.
  *
  * Every operation routes through a {@link TaskExec} so tests can inject a fake
  * executor; the real {@link defaultExec} is used when none is provided.
@@ -29,10 +30,26 @@ import {
 
 const LOG_SCOPE = "scheduling";
 
-function defaultRunAsUser(): string | undefined {
-  const username = process.env.USERNAME;
+interface UserInfoLike {
+  username: string;
+}
+
+export function defaultRunAsUser(
+  env: NodeJS.ProcessEnv = process.env,
+  userInfo: () => UserInfoLike = () => os.userInfo({ encoding: "utf8" }),
+): string | undefined {
+  let username: string | undefined;
+  try {
+    username = userInfo().username;
+  } catch {
+    username = undefined;
+  }
+  if (!username || username.length === 0) {
+    username = env.USERNAME;
+  }
   if (!username || username.length === 0) return undefined;
-  const domain = process.env.USERDOMAIN;
+  if (username.includes("\\") || username.includes("@")) return username;
+  const domain = env.USERDOMAIN;
   return domain && domain.length > 0 ? `${domain}\\${username}` : username;
 }
 
@@ -52,15 +69,34 @@ export interface InstallOptions {
   startupDir?: string;
 }
 
+export interface TasksStatus {
+  /** Periodic snapshot Scheduled Task is registered. */
+  snapshot: boolean;
+  /** Any logon restore mechanism is installed. */
+  logon: boolean;
+  /** ONLOGON restore Scheduled Task is registered. */
+  logonTask: boolean;
+  /** Current-user Startup-folder fallback is installed. */
+  startupFallback: boolean;
+}
+
+/** Extract all text emitted by a `schtasks.exe` invocation. */
+function resultText(result: TaskExecResult): string {
+  return [result.stderr, result.stdout, result.error?.message]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part && part.length > 0))
+    .join(" ");
+}
+
 /** Extract a human-readable failure detail from an executor result. */
 function failureDetail(result: TaskExecResult): string {
-  const detail = (result.stderr ?? result.error?.message ?? "").trim();
+  const detail = resultText(result);
   return detail.length > 0 ? detail : "unknown error";
 }
 
 /** Heuristic: did a delete/query fail only because the task does not exist? */
 function isNotFound(result: TaskExecResult): boolean {
-  const text = `${result.stderr ?? ""} ${result.error?.message ?? ""}`;
+  const text = resultText(result);
   return /cannot find|does not exist|the system cannot find the (file|path)/i.test(
     text,
   );
@@ -68,14 +104,14 @@ function isNotFound(result: TaskExecResult): boolean {
 
 /** Heuristic: did task creation fail because Windows denied this user's ACL? */
 function isAccessDenied(result: TaskExecResult): boolean {
-  const text = `${result.stderr ?? ""} ${result.error?.message ?? ""}`;
+  const text = resultText(result);
   return /access is denied/i.test(text);
 }
 
 /**
- * Register both scheduled tasks. Returns per-task success flags plus a list of
- * human-readable messages (including stderr for any failure) and logs each
- * outcome.
+ * Register the periodic snapshot task and logon restore automation. `logon`
+ * means either the ONLOGON task was registered or the Startup fallback was
+ * installed; messages include scheduler output for failures.
  */
 export function installTasks(opts: InstallOptions): {
   snapshot: boolean;
@@ -106,10 +142,19 @@ export function installTasks(opts: InstallOptions): {
     });
   }
 
+  const runAsUser = opts.runAsUser ?? defaultRunAsUser();
+  if (!runAsUser) {
+    const msg =
+      `Failed to register ${LOGON_TASK_NAME}: could not determine current Windows user for /RU.`;
+    messages.push(msg);
+    log.error(msg, { scope: LOG_SCOPE, taskName: LOGON_TASK_NAME });
+    return { snapshot, logon: false, messages };
+  }
+
   const logonResult = exec.run(
     buildCreateLogonArgs({
       command: opts.restorePromptCommand,
-      runAsUser: opts.runAsUser ?? defaultRunAsUser(),
+      runAsUser,
     }),
   );
   let logon = logonResult.status === 0;
@@ -117,13 +162,26 @@ export function installTasks(opts: InstallOptions): {
     const msg = `Registered scheduled task ${LOGON_TASK_NAME} (restore prompt at logon).`;
     messages.push(msg);
     log.info(msg, { scope: LOG_SCOPE, taskName: LOGON_TASK_NAME });
+    try {
+      if (uninstallStartupRestore(opts.startupDir)) {
+        const cleanupMsg = `Removed stale Startup fallback ${STARTUP_RESTORE_SCRIPT_NAME}.`;
+        messages.push(cleanupMsg);
+        log.info(cleanupMsg, { scope: LOG_SCOPE, taskName: LOGON_TASK_NAME });
+      }
+    } catch (err) {
+      const cleanupMsg = `Failed to remove stale Startup fallback ${STARTUP_RESTORE_SCRIPT_NAME}: ${
+        (err as Error).message
+      }`;
+      messages.push(cleanupMsg);
+      log.error(cleanupMsg, { scope: LOG_SCOPE, taskName: LOGON_TASK_NAME });
+    }
   } else if (isAccessDenied(logonResult)) {
     try {
       const file = installStartupRestore(opts.restorePromptCommand, opts.startupDir);
       logon = true;
       const msg =
         `Windows denied ${LOGON_TASK_NAME}; installed current-user Startup fallback ` +
-        `${STARTUP_RESTORE_SCRIPT_NAME} instead.`;
+        `${STARTUP_RESTORE_SCRIPT_NAME} at ${file} instead.`;
       messages.push(msg);
       log.warn(msg, {
         scope: LOG_SCOPE,
@@ -156,8 +214,8 @@ export function installTasks(opts: InstallOptions): {
 }
 
 /**
- * Remove both scheduled tasks. A missing task is treated as success so the
- * operation is idempotent. Returns human-readable messages for each task.
+ * Remove the Scheduled Tasks and any Startup fallback. Missing entries are
+ * treated as success so the operation is idempotent.
  */
 export function uninstallTasks(opts?: { exec?: TaskExec; startupDir?: string }): {
   messages: string[];
@@ -200,17 +258,13 @@ export function uninstallTasks(opts?: { exec?: TaskExec; startupDir?: string }):
 }
 
 /**
- * Report whether each scheduled task currently exists, based on whether a
- * `schtasks /Query` for it exits successfully.
+ * Report Scheduled Task presence and Startup fallback presence separately, plus
+ * overall logon restore readiness.
  */
-export function tasksStatus(opts?: { exec?: TaskExec; startupDir?: string }): {
-  snapshot: boolean;
-  logon: boolean;
-} {
+export function tasksStatus(opts?: { exec?: TaskExec; startupDir?: string }): TasksStatus {
   const exec = opts?.exec ?? defaultExec;
   const snapshot = exec.run(buildQueryArgs(SNAPSHOT_TASK_NAME)).status === 0;
-  const logon =
-    exec.run(buildQueryArgs(LOGON_TASK_NAME)).status === 0 ||
-    startupRestoreInstalled(opts?.startupDir);
-  return { snapshot, logon };
+  const logonTask = exec.run(buildQueryArgs(LOGON_TASK_NAME)).status === 0;
+  const startupFallback = startupRestoreInstalled(opts?.startupDir);
+  return { snapshot, logon: logonTask || startupFallback, logonTask, startupFallback };
 }
