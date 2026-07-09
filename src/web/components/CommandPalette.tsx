@@ -1,6 +1,6 @@
 import { LayoutGrid, Play, Sparkles, TerminalSquare } from "lucide-react";
-import type { Workspace } from "../../core/types";
-import type { SessionView } from "../api/client";
+import type { Workspace } from "../lib/apiTypes";
+import type { SessionView } from "../lib/apiClient";
 import { displayName } from "../lib/sessions";
 import { shortId } from "../lib/format";
 import {

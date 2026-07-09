@@ -1,4 +1,4 @@
-import type { SessionView } from "../api/client";
+import type { SessionView } from "./apiClient";
 
 /**
  * A curated palette of distinct, Windows-Terminal-compatible swatches used for

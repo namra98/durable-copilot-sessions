@@ -4,7 +4,7 @@
  *
  * DOM-free so it can be unit-tested under the node-only vitest environment.
  */
-import type { Memory, MemoryRecallPack } from "../../core/types";
+import type { Memory, MemoryRecallPack } from "./apiTypes";
 
 function bulletsFor(memories: Memory[]): string[] {
   return memories.map((m) => {

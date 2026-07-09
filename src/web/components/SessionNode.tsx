@@ -2,7 +2,7 @@ import { createContext, useContext } from "react";
 import type { NodeProps } from "@xyflow/react";
 import { Handle, Position } from "@xyflow/react";
 import { GitBranch, MoreHorizontal, Play, Plus, Sparkles, Users } from "lucide-react";
-import type { GraphNode } from "../../core/types";
+import type { GraphNode } from "../lib/apiTypes";
 import { toCssColor } from "../lib/colors";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";

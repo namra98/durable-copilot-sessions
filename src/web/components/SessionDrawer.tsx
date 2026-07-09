@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { Memory } from "../../core/types";
-import type { WindowTarget } from "../../core/types";
-import * as api from "../api/client";
-import type { SessionPatch, SessionView } from "../api/client";
+import type { Memory } from "../lib/apiTypes";
+import type { WindowTarget } from "../lib/apiTypes";
+import * as api from "../lib/apiClient";
+import type { SessionPatch, SessionView } from "../lib/apiClient";
 import { resolveColor } from "../lib/colors";
 import { displayName } from "../lib/sessions";
 import { triggerDownload } from "../lib/download";
@@ -205,6 +205,7 @@ export function SessionDrawer(props: SessionDrawerProps) {
         launch: forkLaunch,
         color: session.color ?? resolveColor(session),
         window: windowTarget,
+        confirmCopilotStateWrite: true,
       });
       setForkOpen(false);
       setForkNote("");

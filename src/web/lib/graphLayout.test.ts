@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { GraphModel } from "../../core/types";
+import type { GraphModel } from "./apiTypes";
 import { layoutGraph, NODE_HEIGHT, NODE_WIDTH } from "./graphLayout";
 
 function model(): GraphModel {

@@ -1,0 +1,31 @@
+{
+  "sessions": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "cwd": "C:\\Users\\example\\repos\\durable-copilot-sessions",
+      "cwdExists": true,
+      "name": "Morning backend session",
+      "gitRoot": "C:\\Users\\example\\repos\\durable-copilot-sessions",
+      "repository": "namra98/durable-copilot-sessions",
+      "branch": "main",
+      "clientName": "github/cli",
+      "createdAt": "2026-07-09T00:00:00.000Z",
+      "updatedAt": "2026-07-09T00:05:00.000Z",
+      "liveness": "live",
+      "livePids": [4242],
+      "topLevel": true,
+      "title": "Morning backend session",
+      "color": "#3B82F6",
+      "group": "namra98/durable-copilot-sessions",
+      "pinned": true,
+      "hidden": false,
+      "managed": true,
+      "tags": ["backend", "contract"],
+      "archived": false,
+      "role": "primary",
+      "groupPid": 4242,
+      "childCount": 1
+    }
+  ],
+  "openCount": 1
+}

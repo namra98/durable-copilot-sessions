@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Save, Trash2, Wrench } from "lucide-react";
-import type { AppConfig, ColorStrategy } from "../../core/types";
-import * as api from "../api/client";
+import type { AppConfig, ColorStrategy } from "../lib/apiTypes";
+import * as api from "../lib/apiClient";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -352,7 +352,7 @@ export function MaintenancePanel({ push }: MaintenancePanelProps) {
     if (!window.confirm("Remove dead-PID lock files for stale sessions?")) return;
     setBusy(true);
     try {
-      const result = await api.cleanStale(true);
+      const result = await api.cleanStale(true, true);
       push("success", `Cleaned ${result.removed} of ${result.stale} stale lock${result.stale === 1 ? "" : "s"}.`);
       refresh();
     } catch (err) {
