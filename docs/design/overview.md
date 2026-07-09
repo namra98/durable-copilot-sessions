@@ -61,8 +61,6 @@ contract directly.
   The npm-linked `dcs` command is a thin Node launcher that delegates to `dcs-rs`.
 - **`src/web`** — a React + Vite dashboard retained as a legacy/dev API client. In dev it runs on
   port `4516` and proxies `/api` to the Rust API.
-- **legacy TypeScript backend** — retained for contract drift tests and safe cutover, not the
-  primary runtime.
 
 ## Data flow
 

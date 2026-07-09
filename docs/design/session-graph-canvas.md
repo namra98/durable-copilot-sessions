@@ -263,38 +263,34 @@ resolve a Python 3 interpreter (`py -3` → `python` → `python3`), and
 - **Pros:** battle-tested; handles block-scalar YAML, `events.jsonl` rewrite, atomic rename,
   duplicate-key validation. Zero re-implementation risk.
 - **Cons:** requires **Python 3** on PATH (not guaranteed) **and** the skill to be installed at
-  a discoverable path (it may be absent or move). Violates the project's "zero external runtime
-  deps / pure TypeScript" ethos and its read-only-Python-free posture. Brittle to skill-version
-  drift.
+  a discoverable path (it may be absent or move). Violates the project's dependency-light runtime
+  posture. Brittle to skill-version drift.
 
-### Option B — reimplement branching in TypeScript
+### Option B — reimplement branching in Rust
 
-Use Node `fs` + the already-present **`yaml`** dependency. Steps mirroring the contract:
+Use Rust filesystem helpers + `serde_yaml`, mirroring the contract:
 
-1. `fs.cpSync(parentDir, stagingDir, { recursive: true })` into a sibling
+1. Recursively copy `parentDir` into a sibling staging directory
    `.tmp-branch-<uuid>` dir.
-2. **Rewrite `workspace.yaml` with `yaml`'s `parseDocument`** (CST-preserving) rather than
-   `parse`+`stringify`: load the document, `doc.set("id", newId)`, set `name`, `user_named`,
-   `summary`, `created_at`, `updated_at`, `branch_of`, `branch_note`, then `doc.toString()`.
-   `parseDocument` preserves unrelated keys, comments, and block scalars, which a naive
-   `parse → stringify` round-trip would mangle. Guard against duplicate top-level keys.
+2. **Rewrite `workspace.yaml` with `serde_yaml`** while preserving the known Copilot fields and adding
+   `id`, `name`, `user_named`, `summary`, `created_at`, `updated_at`, `branch_of`, and `branch_note`.
+   Guard against malformed or duplicate top-level keys before committing the staged directory.
 3. **`events.jsonl`:** if present, stream line-by-line, JSON-parse each, and on
    `type === "session.start"` patch `data.sessionId`/`alreadyInUse`/title fields; re-emit
    compact JSON.
 4. **Reset rewind/checkpoints:** write the empty `rewind-snapshots/index.json`, clear
    `backups/`, write the `checkpoints/index.md` header.
 5. **Drop** `session.db` + `inuse.*.lock`.
-6. **Atomic-ish rename:** `fs.renameSync(stagingDir, newDir)`. On Windows, rename within the
+6. **Atomic-ish rename:** rename `stagingDir` to `newDir`. On Windows, rename within the
    same volume is atomic for a directory **only if the destination does not exist** — which we
    guarantee (newId is a fresh UUID). On `EXDEV`/`EPERM`/`EEXIST`, clean up staging and surface
    a clear error.
 
-- **Pros:** pure TS, no Python, no skill dependency — fits the codebase. Fully unit-testable
+- **Pros:** pure Rust, no Python, no skill dependency — fits the Rust backend/core. Fully unit-testable
   with a temp `DCS_COPILOT_HOME`. We control the format contract.
 - **Risks / what to watch:**
-  - **YAML fidelity.** `parseDocument` is the safe path; a `parse → stringify` shortcut risks
-    reordering keys or losing block scalars. Must use the document/CST API and add a snapshot
-    test against a real `workspace.yaml`.
+  - **YAML fidelity.** Avoid lossy round-trips where possible; add snapshot tests against a real
+    `workspace.yaml`.
   - **`events.jsonl` schema drift.** Patch only the fields we understand; never drop unknown
     keys. Wrap in try/catch per line so one malformed line can't abort the fork (copy verbatim
     on parse failure).
@@ -309,17 +305,15 @@ Use Node `fs` + the already-present **`yaml`** dependency. Steps mirroring the c
     `<newId>/` directory** — never mutating an existing session. Document this prominently
     (update the README's read-only claim and overview).
 
-### Recommendation — **Option B (TS-native) with a documented Option A fallback (hybrid)**
+### Recommendation — **Option B (Rust-native) with a documented Option A fallback (hybrid)**
 
-Ship a TS-native `core/branch/branchSession.ts` as the default. It removes the Python and
-skill-path dependencies and keeps the build pure. Implement Option A as an **opt-in fallback**
-(`DCS_BRANCH_USE_SKILL=1`, or auto-fallback if the TS branch throws a YAML/format error *and*
-the script is present) so power users keep the battle-tested path during early hardening. Gate
-B behind a comprehensive test suite (round-trip a captured fixture session and assert it
-discovers with the right `branchOf` and resumes in dry-run).
+Ship the Rust implementation as the default. It removes the Python and skill-path dependencies and
+keeps backend behavior in `dcs-core`. Implement Option A only as an **opt-in fallback** if needed
+so power users keep the battle-tested path during early hardening. Gate B behind a comprehensive
+test suite (round-trip a captured fixture session and assert it discovers with the right `branchOf`
+and resumes in dry-run).
 
-This is the only option consistent with the project's stated principles (§ "zero native
-dependencies", "pure TypeScript") while preserving an escape hatch.
+This is the only option consistent with the Rust backend migration while preserving an escape hatch.
 
 > **Invariant change (must be called out in review):** introducing fork makes `dcs` a *writer*
 > of new session directories under `~/.copilot/session-state/`. It still never edits an

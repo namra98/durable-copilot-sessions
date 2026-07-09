@@ -1,9 +1,9 @@
 /**
- * Shared domain types for durable-copilot-sessions.
+ * Web-facing API/domain types for durable-copilot-sessions.
  *
- * These types form the contract between the discovery, registry, launch,
- * snapshot, server, CLI, and web layers. Keep this file free of runtime
- * imports so it can be consumed by both Node and browser code.
+ * The canonical runtime contract is implemented in Rust (`rust/dcs-core/src/model.rs`)
+ * and frozen in `contracts/backend-api.v1.json`. Keep this file free of runtime
+ * imports so Vite can consume it as type-only browser code.
  */
 
 /** A Copilot CLI session id (UUID), e.g. "dccd6a05-847c-4b1e-9d45-7d380410d68a". */
@@ -280,4 +280,3 @@ export interface MemoryRecallPack {
   summaries: Memory[];
   files: string[];
 }
-

@@ -23,7 +23,7 @@ import type {
   MemoryRecallPack,
   MemorySearchHit,
   WindowTarget,
-} from "../../core/types";
+} from "../lib/apiTypes";
 import * as api from "../lib/apiClient";
 import { buildContextPack, isRecallEmpty } from "../lib/contextPack";
 import { relativeTime } from "../lib/format";

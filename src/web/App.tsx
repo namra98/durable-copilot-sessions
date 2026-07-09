@@ -15,7 +15,7 @@ import {
   Upload,
   ChevronRight,
 } from "lucide-react";
-import type { AppConfig, LaunchResult, TabSpec, WindowSpec, WindowTarget, Workspace } from "../core/types";
+import type { AppConfig, LaunchResult, TabSpec, WindowSpec, WindowTarget, Workspace } from "./lib/apiTypes";
 import * as api from "./lib/apiClient";
 import type {
   CreateWorkspaceBody,

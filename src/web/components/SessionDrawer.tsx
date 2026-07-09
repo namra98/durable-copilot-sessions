@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import type { Memory } from "../../core/types";
-import type { WindowTarget } from "../../core/types";
+import type { Memory } from "../lib/apiTypes";
+import type { WindowTarget } from "../lib/apiTypes";
 import * as api from "../lib/apiClient";
 import type { SessionPatch, SessionView } from "../lib/apiClient";
 import { resolveColor } from "../lib/colors";

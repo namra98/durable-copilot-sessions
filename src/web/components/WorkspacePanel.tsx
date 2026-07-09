@@ -1,5 +1,5 @@
 import { RotateCcw, Trash2 } from "lucide-react";
-import type { Workspace } from "../../core/types";
+import type { Workspace } from "../lib/apiTypes";
 import { absoluteTime, relativeTime } from "../lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

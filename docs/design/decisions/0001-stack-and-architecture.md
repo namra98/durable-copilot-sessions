@@ -61,5 +61,5 @@ pure-JS packages (`commander`, `express`, `open`, `react`, `react-dom`, `yaml`).
 
 This decision describes the original implementation. The primary backend/core, CLI, and local API
 have since moved to Rust for lower-latency discovery and API responses while preserving the same
-state layout and `/api` contract. The TypeScript/React code remains as a legacy dashboard and
-contract-compatibility layer during cutover.
+state layout and `/api` contract. The old TypeScript backend/server/CLI implementation was removed;
+TypeScript now remains only for the thin npm launcher and React dashboard.

@@ -17,7 +17,7 @@ import type {
   WindowSpec,
   WindowTarget,
   Workspace,
-} from "../../core/types";
+} from "./apiTypes";
 
 /**
  * A discovered session merged with any tool-managed metadata. Mirrors the

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, Save, Trash2, Wrench } from "lucide-react";
-import type { AppConfig, ColorStrategy } from "../../core/types";
+import type { AppConfig, ColorStrategy } from "../lib/apiTypes";
 import * as api from "../lib/apiClient";
 import { Button } from "@/components/ui/button";
 import {

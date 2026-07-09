@@ -15,11 +15,10 @@ picture.
 
 - **Rust (MSRV 1.80)** for the primary backend/core, CLI, Axum API, scheduling helpers, and memory
   index. Unsafe code is forbidden.
-- **TypeScript (ESM, `NodeNext`)** — Node `>=20` for the npm launcher, legacy compatibility code,
-  contract tests, and React dashboard.
+- **TypeScript (ESM, `NodeNext`)** — Node `>=20` for the thin npm launcher and React dashboard.
 - **Axum** local API server (default port **4517**).
 - **Vite + React** legacy/dev dashboard (dev port **4516**, proxies `/api` → API).
-- **Vitest** for TypeScript contract tests and Cargo tests for Rust.
+- **Vitest** for dashboard/client tests and Cargo tests for Rust.
 
 ## Conventions
 
@@ -29,11 +28,10 @@ picture.
   even for `.ts` files: `import { loadConfig } from "./config.js";`.
 - **No constructor parameter properties.** `erasableSyntaxOnly` is enabled — declare class fields and
   assign them in the constructor body instead of using `constructor(private x: T)`.
-- **Tests beside source.** Rust integration tests live under `rust/**/tests`; TypeScript tests remain
-  as `*.test.ts` and run with Vitest. Prefer pure, unit-testable functions (e.g. `wt.exe` argv
-  builders are tested via dry-run rather than by spawning processes).
+- **Tests beside source.** Rust integration tests live under `rust/**/tests`; dashboard TypeScript
+  tests remain as `*.test.ts` and run with Vitest. Prefer pure, unit-testable functions.
 - **`contracts/backend-api.v1.json` and `rust/dcs-core/src/model.rs` are the API/state contracts.**
-  Keep TypeScript contract fixtures in sync when intentionally changing shapes.
+  Keep web-facing TypeScript API types in sync when intentionally changing shapes.
 - **Never write to `~/.copilot`.** Treat all Copilot state as **read-only**. Only write under the
   owned state directory (see below).
 - **Atomic writes** for owned state: write to a temp file, then rename.
@@ -56,9 +54,7 @@ rust/
 
 src/
 ├── web/          # React + Vite dashboard client
-├── core/         # legacy TypeScript implementation used for contract drift tests
-├── server/       # legacy Express API compatibility layer
-└── cli/          # npm launcher + legacy TypeScript CLI code
+└── cli/          # thin npm launcher that delegates to Rust
 ```
 
 ## State directory

@@ -94,7 +94,7 @@ child, or jump to related memory straight from a node.
 | **Windows 11** | The tool drives `wt.exe`; it is Windows‑only by design. |
 | **Windows Terminal** | `wt.exe` must be on `PATH` (the default on Windows 11). |
 | **Rust ≥ 1.80** | Builds the Rust `dcs-rs` backend/CLI. |
-| **Node.js ≥ 20** | Used for npm setup, the thin `dcs` launcher, contract tests, and the legacy React dashboard. |
+| **Node.js ≥ 20** | Used for npm setup, the thin `dcs` launcher, and the legacy React dashboard. |
 | **GitHub Copilot CLI** | `copilot` must be on `PATH` so restored tabs can run `copilot --resume`. |
 
 ---
@@ -128,8 +128,8 @@ npm run setup     # npm install + npm run build + npm link  →  `dcs` on PATH
 dcs install-tasks # register auto-snapshot + logon-restore (optional)
 ```
 
-`npm run setup` builds the Rust backend/CLI in release mode, compiles the legacy TypeScript
-contract/dashboard code, bundles the web assets into `dist/`, and `npm link`s the `dcs` bin
+`npm run setup` builds the Rust backend/CLI in release mode, compiles the thin npm launcher,
+bundles the web assets into `dist/`, and `npm link`s the `dcs` bin
 (`dist/cli/rust-bin.js`) onto your PATH. Verify your environment afterward with `dcs doctor`.
 </details>
 
@@ -235,9 +235,9 @@ consume the frozen JSON contract instead.
 
 ## Architecture
 
-`dcs` now uses a Rust backend/core with an npm launcher for convenience. The legacy TypeScript/React
-code remains in the repo for contract tests and the dashboard client, but the primary CLI and local
-API run from `rust\dcs` and `rust\dcs-core`.
+`dcs` now uses a Rust backend/core with an npm launcher for convenience. The old TypeScript backend,
+Express server, and TypeScript CLI have been removed; the remaining TypeScript code is the dashboard
+client plus the thin launcher. The primary CLI and local API run from `rust\dcs` and `rust\dcs-core`.
 
 ```mermaid
 flowchart TB
@@ -264,14 +264,13 @@ flowchart TB
 
 | Layer | Responsibility |
 | --- | --- |
-| `core/discovery` | Scan `~/.copilot/session-state/*/workspace.yaml`, classify liveness from `inuse.<pid>.lock` + PID checks, flag top‑level interactive sessions, and (best‑effort) enrich from `session-store.db`. |
-| `core/registry` | Durable file‑store: one JSON per managed session and one per workspace, written atomically under the owned state dir. |
-| `core/launch` | Build and run `wt.exe` commands that open tabs running `copilot --resume`, applying color maps, window grouping, and cwd fallback. Argv builders are pure and unit‑tested via dry‑run. |
-| `core/snapshot` | Capture the current live layout into a `Workspace`, group tabs into windows, restore them, and manage rolling auto‑snapshots with retention. |
-| `rust\dcs-core` | Discovery, registry/state IO, launch/snapshot planning, memory/search, logs/transcripts, stats, scheduling helpers, and manager facade. |
+| `rust\dcs-core\src\discovery.rs` | Scan `~/.copilot/session-state/*/workspace.yaml`, classify liveness from `inuse.<pid>.lock` + PID checks, flag top-level interactive sessions, and (best-effort) enrich from `session-store.db`. |
+| `rust\dcs-core\src\registry.rs` | Durable file-store: one JSON per managed session and one per workspace, written atomically under the owned state dir. |
+| `rust\dcs-core\src\launch.rs` | Build and run `wt.exe` commands that open tabs running `copilot --resume`, applying color maps, window grouping, and cwd fallback. Argv builders are pure and unit-tested via dry-run. |
+| `rust\dcs-core\src\manager.rs` | Discovery, registry/state IO, launch/snapshot planning, memory/search, logs/transcripts, stats, scheduling helpers, and manager facade. |
 | `rust\dcs` | Rust CLI plus Axum API exposing sessions, workspaces, resume, snapshot, restore, memory, logs, and config. |
 | `src\web` | Legacy React dashboard that talks to the API contract. |
-| `src\core`, `src\server`, `src\cli` | Legacy TypeScript implementation retained for contract drift tests and compatibility during cutover. |
+| `src\cli\rust-bin.ts` | Thin npm launcher that locates and executes `dcs-rs`. |
 
 See [`docs/design/overview.md`](docs/design/overview.md) for a deeper walkthrough and the on‑disk
 state layout, and [`docs/design/session-graph-canvas.md`](docs/design/session-graph-canvas.md) for the
@@ -467,9 +466,7 @@ rust/
 
 src/
 ├── web/          # React + Vite dashboard client
-├── core/         # legacy TypeScript backend used for drift tests during cutover
-├── server/       # legacy Express API compatibility implementation
-└── cli/          # npm launcher + legacy TypeScript CLI code
+└── cli/          # thin npm launcher that delegates to Rust
 ```
 
 ---

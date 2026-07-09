@@ -27,8 +27,7 @@ Migrate the backend/core and CLI to Rust incrementally:
 - `rust/dcs` provides the `dcs-rs` CLI and Axum `/api` server.
 - The npm-linked `dcs` command is a thin Node launcher that delegates to `target\release\dcs-rs.exe`
   after `npm run build`.
-- `contracts/backend-api.v1.json` and golden fixtures freeze API/state behavior while TypeScript and
-  Rust coexist.
+- `contracts/backend-api.v1.json`, golden fixtures, and Rust tests freeze API/state behavior.
 - The React dashboard remains a legacy/dev client of the frozen API contract; future TUI work should
   consume the same contract rather than depending on TypeScript internals.
 
@@ -46,5 +45,5 @@ Migrate the backend/core and CLI to Rust incrementally:
 - Development now requires a Rust toolchain in addition to Node.
 - The convenience `dcs` npm command still needs Node because npm links JavaScript shims; users can run
   `target\release\dcs-rs.exe` directly if they want a Node-free runtime path.
-- The legacy React dashboard is not ported into the Rust server. It remains available through Vite
-  during development and should be replaced by the planned TUI.
+- The legacy React dashboard is not ported into Rust UI code. It remains available through Vite
+  during development and can be replaced by the planned TUI.
