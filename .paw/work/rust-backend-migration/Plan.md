@@ -35,7 +35,7 @@ Use an incremental Rust migration: first freeze contracts and behavior with gold
 - Rust HTTP API compatibility is implemented with Axum and covered by fixture-backed tests for session/graph ordering, response envelopes, config/logs/memory/workspace wrappers, fork creation, and new-session dry-run launch planning.
 - Rust CLI/scheduling parity is implemented in `dcs-rs`, including the existing command surface, doctor checks, Windows Scheduled Tasks argument builders, hidden VBScript launchers, and fixture-backed CLI smoke tests.
 - Validation/benchmark smoke gates are implemented via `npm run rust:smoke`, which exercises large-tree live-only discovery performance, and `npm run rust:check`, which covers formatting, clippy, tests, and build.
-- Cutover packaging/docs is in progress: `npm run build` now produces the Rust release binary, the npm-linked `dcs` command delegates to `dcs-rs`, setup/bootstrap/scheduled-task docs target the Rust binary, CI runs Rust checks, and public architecture docs describe the Rust backend/API as primary while leaving React/TUI implementation out of scope.
+- Cutover packaging/docs is complete: `npm run build` now produces the Rust release binary, the npm-linked `dcs` command delegates to `dcs-rs`, setup/bootstrap/scheduled-task docs target the Rust binary, CI runs Rust checks, and public architecture docs describe the Rust backend/API as primary while leaving React/TUI implementation out of scope.
 
 ## Staged work items
 

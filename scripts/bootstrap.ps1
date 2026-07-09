@@ -65,5 +65,5 @@ if (-not $NoTasks) {
 Write-Host ""
 Write-Host "Done. The Rust-backed 'dcs' command is now available." -ForegroundColor Green
 Write-Host "  dcs doctor          # verify your environment"
-Write-Host "  dcs ui              # open the dashboard"
+Write-Host "  dcs serve           # start the Rust API"
 Write-Host "  dcs install-tasks   # auto-snapshot + restore-on-login (if not already)"

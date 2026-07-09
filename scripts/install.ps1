@@ -35,7 +35,7 @@ if ($WithTasks) {
 Write-Host ""
 Write-Host "Done. The Rust-backed 'dcs' command is now available." -ForegroundColor Green
 Write-Host "  dcs doctor          # verify your environment"
-Write-Host "  dcs ui              # open the dashboard"
+Write-Host "  dcs serve           # start the Rust API"
 Write-Host "  dcs list            # list open sessions"
 Write-Host "  dcs install-tasks   # auto-snapshot + restore-on-login (if not already)"
 Write-Host "  .\scripts\tray.ps1  # optional always-on system tray"
