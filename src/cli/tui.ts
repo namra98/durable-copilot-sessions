@@ -5,10 +5,12 @@ import {
   clampStateSelection,
   filterVisibleData,
   handleTuiInput,
+  primeVisibleDataCache,
   renderTui,
   sessionTitle,
   type TuiData,
   type TuiCommand,
+  type TuiRefreshScope,
   type TuiState,
   type TuiStatus,
 } from "./tuiModel.js";
@@ -101,6 +103,11 @@ function errorStatus(error: unknown): TuiStatus {
   };
 }
 
+const DISCOVERY_CACHE_TTL_MS = 1500;
+const RESIZE_RENDER_DEBOUNCE_MS = 16;
+const MEMORY_SEARCH_DEBOUNCE_MS = 150;
+const MEMORY_PREWARM_DELAY_MS = 500;
+
 class TuiApp {
   private readonly manager: TuiManager;
   private readonly stdin: TuiInput;
@@ -111,6 +118,11 @@ class TuiApp {
   private originalRawMode: boolean;
   private resolveStop?: () => void;
   private memorySearchTimer?: ReturnType<typeof setTimeout>;
+  private memoryPrewarmTimer?: ReturnType<typeof setTimeout>;
+  private renderTimer?: ReturnType<typeof setTimeout>;
+  private readonly sessionCache: Map<TuiState["filter"], { at: number; result: ReturnType<TuiManager["listSessionsResult"]> }>;
+  private layoutCache?: { at: number; workspaces: Workspace[] };
+  private lastFrameLines?: string[];
   private readonly onData: (chunk: Buffer | string) => void;
   private readonly onResize: () => void;
   private readonly onSigint: () => void;
@@ -123,13 +135,14 @@ class TuiApp {
     this.data = { sessions: { sessions: [], openCount: 0 }, workspaces: [], memoryHits: [] };
     this.stopped = false;
     this.originalRawMode = this.stdin.isRaw;
+    this.sessionCache = new Map();
     this.onData = (chunk) => {
       void this.handleInput(chunk.toString()).catch((error: unknown) => {
         this.state = { ...this.state, status: errorStatus(error) };
         this.render();
       });
     };
-    this.onResize = () => this.render();
+    this.onResize = () => this.scheduleRender();
     this.onSigint = () => this.stop();
   }
 
@@ -141,8 +154,9 @@ class TuiApp {
     process.once("SIGINT", this.onSigint);
     try {
       this.stdout.write("\x1b[?1049h\x1b[?25l");
-      this.refresh({ kind: "info", message: "loaded sessions and workspaces" });
+      this.refresh({ kind: "info", message: "loaded sessions and workspaces" }, "all", true);
       this.render();
+      this.scheduleMemoryPrewarm();
 
       await new Promise<void>((resolve) => {
         this.resolveStop = resolve;
@@ -160,18 +174,22 @@ class TuiApp {
     this.stdout.off("resize", this.onResize);
     process.off("SIGINT", this.onSigint);
     this.clearMemorySearchTimer();
+    this.clearMemoryPrewarmTimer();
+    this.clearRenderTimer();
     this.stdin.setRawMode(this.originalRawMode);
     this.stdout.write("\x1b[?25h\x1b[?1049l");
     this.resolveStop?.();
   }
 
-  private refresh(status?: TuiStatus): void {
-    const memoryHits = this.searchMemory();
-    this.data = {
-      sessions: this.manager.listSessionsResult(this.state.filter),
-      workspaces: sortWorkspaces([...this.manager.listWorkspaces(), ...this.manager.listSnapshots()]),
+  private refresh(status?: TuiStatus, scope: TuiRefreshScope = "all", force = false): void {
+    const reloadSessions = scope === "all" || scope === "sessions";
+    const reloadLayouts = scope === "all" || scope === "layouts";
+    const memoryHits = scope === "all" ? this.searchMemory() : this.data.memoryHits;
+    this.setData({
+      sessions: reloadSessions ? this.loadSessions(force) : this.data.sessions,
+      workspaces: reloadLayouts ? this.loadLayouts(force) : this.data.workspaces,
       memoryHits,
-    };
+    });
     this.state = clampStateSelection(
       {
         ...this.state,
@@ -182,10 +200,11 @@ class TuiApp {
   }
 
   private render(): void {
+    this.clearRenderTimer();
     const columns = this.stdout.columns ?? 100;
     const rows = this.stdout.rows ?? 30;
     const frame = renderTui(this.state, this.data, { columns, rows, color: true });
-    this.stdout.write(`\x1b[H${padFrame(frame, rows)}\x1b[0J`);
+    this.writeFrame(frame, rows);
   }
 
   private async handleInput(input: string): Promise<void> {
@@ -205,12 +224,13 @@ class TuiApp {
       return true;
     }
     if (command.kind === "refresh") {
-      this.refresh(command.status);
+      this.refresh(command.status, command.scope, command.scope === "all");
     } else if (command.kind === "search") {
       this.search(command.query, command.status, command.immediate);
     } else if (command.kind === "snapshot") {
       const snapshot = this.manager.snapshot();
-      this.refresh({ kind: "success", message: `snapshot saved: ${snapshot.name}` });
+      this.layoutCache = undefined;
+      this.refresh({ kind: "success", message: `snapshot saved: ${snapshot.name}` }, "layouts", true);
     } else if (command.kind === "activate") {
       this.activateSelection();
     } else {
@@ -263,7 +283,7 @@ class TuiApp {
     };
     this.clearMemorySearchTimer();
     if (!query.trim()) {
-      this.data = { ...this.data, memoryHits: [] };
+      this.setData({ ...this.data, memoryHits: [] });
       this.state = clampStateSelection(this.state, filterVisibleData(this.data, this.state.query));
       return;
     }
@@ -274,16 +294,16 @@ class TuiApp {
     this.memorySearchTimer = setTimeout(() => {
       this.memorySearchTimer = undefined;
       this.refreshMemorySearch(query);
-    }, 150);
+    }, MEMORY_SEARCH_DEBOUNCE_MS);
   }
 
   private refreshMemorySearch(query: string, render = true): void {
     if (this.stopped || query !== this.state.query.trim()) return;
     try {
-      this.data = {
+      this.setData({
         ...this.data,
         memoryHits: this.manager.searchMemory(query, { limit: 12 }),
-      };
+      });
       this.state = clampStateSelection(this.state, filterVisibleData(this.data, this.state.query));
       if (render) this.render();
     } catch (error) {
@@ -296,6 +316,87 @@ class TuiApp {
     if (!this.memorySearchTimer) return;
     clearTimeout(this.memorySearchTimer);
     this.memorySearchTimer = undefined;
+  }
+
+  private setData(data: TuiData): void {
+    this.data = data;
+    primeVisibleDataCache(this.data);
+  }
+
+  private loadSessions(force: boolean): ReturnType<TuiManager["listSessionsResult"]> {
+    const now = Date.now();
+    const cached = this.sessionCache.get(this.state.filter);
+    if (!force && cached && now - cached.at < DISCOVERY_CACHE_TTL_MS) {
+      return cached.result;
+    }
+    const result = this.manager.listSessionsResult(this.state.filter);
+    this.sessionCache.set(this.state.filter, { at: now, result });
+    return result;
+  }
+
+  private loadLayouts(force: boolean): Workspace[] {
+    const now = Date.now();
+    if (!force && this.layoutCache && now - this.layoutCache.at < DISCOVERY_CACHE_TTL_MS) {
+      return this.layoutCache.workspaces;
+    }
+    const workspaces = sortWorkspaces([...this.manager.listWorkspaces(), ...this.manager.listSnapshots()]);
+    this.layoutCache = { at: now, workspaces };
+    return workspaces;
+  }
+
+  private scheduleRender(): void {
+    if (this.renderTimer || this.stopped) return;
+    this.renderTimer = setTimeout(() => {
+      this.renderTimer = undefined;
+      this.render();
+    }, RESIZE_RENDER_DEBOUNCE_MS);
+  }
+
+  private clearRenderTimer(): void {
+    if (!this.renderTimer) return;
+    clearTimeout(this.renderTimer);
+    this.renderTimer = undefined;
+  }
+
+  private scheduleMemoryPrewarm(): void {
+    this.clearMemoryPrewarmTimer();
+    this.memoryPrewarmTimer = setTimeout(() => {
+      this.memoryPrewarmTimer = undefined;
+      if (this.stopped || this.state.query.trim()) return;
+      try {
+        this.manager.searchMemory("", { limit: 1 });
+      } catch {
+        // Memory is opportunistic in the TUI; an index failure should not make navigation sluggish or fatal.
+      }
+    }, MEMORY_PREWARM_DELAY_MS);
+  }
+
+  private clearMemoryPrewarmTimer(): void {
+    if (!this.memoryPrewarmTimer) return;
+    clearTimeout(this.memoryPrewarmTimer);
+    this.memoryPrewarmTimer = undefined;
+  }
+
+  private writeFrame(frame: string, rows: number): void {
+    const lines = padFrameLines(frame, rows);
+    if (!this.lastFrameLines) {
+      this.stdout.write(`\x1b[H${lines.join("\n")}\x1b[0J`);
+      this.lastFrameLines = lines;
+      return;
+    }
+
+    const writes: string[] = [];
+    const maxRows = Math.max(lines.length, this.lastFrameLines.length);
+    for (let index = 0; index < maxRows; index += 1) {
+      const line = lines[index] ?? "";
+      if (line !== (this.lastFrameLines[index] ?? "")) {
+        writes.push(`\x1b[${index + 1};1H${line}\x1b[K`);
+      }
+    }
+    if (writes.length > 0) {
+      this.stdout.write(writes.join(""));
+    }
+    this.lastFrameLines = lines;
   }
 
   private saveWorkspace(name: string): void {
@@ -313,7 +414,8 @@ class TuiApp {
       fromLive: true,
       filter: "open",
     });
-    this.refresh({ kind: "success", message: `workspace saved from open live layout: ${workspace.name}` });
+    this.layoutCache = undefined;
+    this.refresh({ kind: "success", message: `workspace saved from open live layout: ${workspace.name}` }, "layouts", true);
   }
 }
 
@@ -321,10 +423,10 @@ function memoryTitle(hit: MemorySearchHit): string {
   return hit.memory.title ?? hit.memory.sessionId.slice(0, 8);
 }
 
-function padFrame(frame: string, rows: number): string {
+function padFrameLines(frame: string, rows: number): string[] {
   const lines = frame.split("\n").slice(0, Math.max(0, rows));
   while (lines.length < rows) {
     lines.push("");
   }
-  return lines.join("\n");
+  return lines;
 }

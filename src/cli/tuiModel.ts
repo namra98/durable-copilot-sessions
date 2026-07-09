@@ -42,9 +42,11 @@ export interface VisibleTuiData {
   memoryHits: MemorySearchHit[];
 }
 
+export type TuiRefreshScope = "all" | "sessions" | "layouts";
+
 export type TuiCommand =
   | { kind: "activate" }
-  | { kind: "refresh"; status: TuiStatus }
+  | { kind: "refresh"; status: TuiStatus; scope: TuiRefreshScope }
   | { kind: "search"; query: string; immediate: boolean; status: TuiStatus }
   | { kind: "snapshot" }
   | { kind: "save-workspace"; name: string }
@@ -200,61 +202,118 @@ export function truncateText(text: string, width: number): string {
   return `${text.slice(0, width - 3)}...`;
 }
 
-function normalize(value: string | undefined): string {
-  return value?.toLowerCase() ?? "";
-}
-
-function matchesQuery(values: Array<string | undefined>, query: string): boolean {
-  const needle = query.trim().toLowerCase();
-  if (!needle) return true;
-  return values.some((value) => normalize(value).includes(needle));
-}
-
 function singleLine(value: string | undefined): string | undefined {
   return value?.replace(/\s+/g, " ").trim();
 }
 
+interface SearchIndex<T> {
+  item: T;
+  haystack: string;
+}
+
+interface TuiSearchIndex {
+  sessions: Array<SearchIndex<SessionView>>;
+  workspaces: Array<SearchIndex<Workspace>>;
+  memoryHits: Array<SearchIndex<MemorySearchHit>>;
+}
+
+const searchIndexCache = new WeakMap<TuiData, TuiSearchIndex>();
+const visibleDataCache = new WeakMap<TuiData, Map<string, VisibleTuiData>>();
+
+function normalizeQuery(query: string): string {
+  return query.trim().toLowerCase();
+}
+
+function normalizeSearchValues(values: Array<string | undefined>): string {
+  return values
+    .filter((value): value is string => typeof value === "string" && value.length > 0)
+    .join("\u0000")
+    .toLowerCase();
+}
+
+function searchableSession(session: SessionView): string {
+  return normalizeSearchValues([
+    session.id,
+    sessionTitle(session),
+    session.summary,
+    session.repository,
+    session.branch,
+    session.cwd,
+    session.clientName,
+    session.branchNote,
+    session.group,
+    ...(session.tags ?? []),
+  ]);
+}
+
+function searchableWorkspace(workspace: Workspace): string {
+  return normalizeSearchValues([workspace.id, workspace.name, workspace.description, workspace.source]);
+}
+
+function searchableMemory(hit: MemorySearchHit): string {
+  return normalizeSearchValues([
+    hit.memory.id,
+    hit.memory.sessionId,
+    hit.memory.kind,
+    hit.memory.title,
+    hit.memory.content,
+    hit.memory.repository,
+    hit.memory.branch,
+    hit.snippet,
+  ]);
+}
+
+function searchIndex(data: TuiData): TuiSearchIndex {
+  const cached = searchIndexCache.get(data);
+  if (cached) return cached;
+  const indexed = {
+    sessions: data.sessions.sessions.map((item) => ({ item, haystack: searchableSession(item) })),
+    workspaces: data.workspaces.map((item) => ({ item, haystack: searchableWorkspace(item) })),
+    memoryHits: data.memoryHits.map((item) => ({ item, haystack: searchableMemory(item) })),
+  };
+  searchIndexCache.set(data, indexed);
+  return indexed;
+}
+
 export function filterVisibleData(data: TuiData, query: string): VisibleTuiData {
-  const memoryHits = data.memoryHits.filter((hit) =>
-    matchesQuery(
-      [
-        hit.memory.id,
-        hit.memory.sessionId,
-        hit.memory.kind,
-        hit.memory.title,
-        hit.memory.content,
-        hit.memory.repository,
-        hit.memory.branch,
-        hit.snippet,
-      ],
-      query,
-    ),
-  );
+  const needle = normalizeQuery(query);
+  if (!needle) {
+    return {
+      sessions: data.sessions.sessions,
+      workspaces: data.workspaces,
+      memoryHits: data.memoryHits,
+    };
+  }
+  const perDataCache = visibleDataCache.get(data) ?? new Map<string, VisibleTuiData>();
+  visibleDataCache.set(data, perDataCache);
+  const cached = perDataCache.get(needle);
+  if (cached) return cached;
+
+  const indexed = searchIndex(data);
+  const memoryHits = indexed.memoryHits
+    .filter((entry) => entry.haystack.includes(needle))
+    .map((entry) => entry.item);
   const memorySessionIds = new Set(memoryHits.map((hit) => hit.memory.sessionId));
-  return {
-    sessions: data.sessions.sessions.filter((session) =>
-      memorySessionIds.has(session.id) ||
-      matchesQuery(
-        [
-          session.id,
-          sessionTitle(session),
-          session.summary,
-          session.repository,
-          session.branch,
-          session.cwd,
-          session.clientName,
-          session.branchNote,
-          session.group,
-          ...(session.tags ?? []),
-        ],
-        query,
-      ),
-    ),
-    workspaces: data.workspaces.filter((workspace) =>
-      matchesQuery([workspace.id, workspace.name, workspace.description, workspace.source], query),
-    ),
+  const visible: VisibleTuiData = {
+    sessions: indexed.sessions
+      .filter((entry) => memorySessionIds.has(entry.item.id) || entry.haystack.includes(needle))
+      .map((entry) => entry.item),
+    workspaces: indexed.workspaces
+      .filter((entry) => entry.haystack.includes(needle))
+      .map((entry) => entry.item),
     memoryHits,
   };
+  perDataCache.set(needle, visible);
+  return visible;
+}
+
+export function primeVisibleDataCache(data: TuiData): void {
+  searchIndex(data);
+}
+
+export function clearVisibleDataCache(data: TuiData): void {
+  searchIndexCache.delete(data);
+  visibleDataCache.delete(data);
 }
 
 export function clampStateSelection(state: TuiState, visible: VisibleTuiData): TuiState {
@@ -345,7 +404,7 @@ export function handleTuiInput(
     const filter = nextSessionFilter(state.filter);
     return {
       state: { ...state, filter, sessionIndex: 0 },
-      command: { kind: "refresh", status: { kind: "info", message: `filter set to ${filter}` } },
+      command: { kind: "refresh", scope: "sessions", status: { kind: "info", message: `filter set to ${filter}` } },
     };
   }
   if (input === "/") {
@@ -365,7 +424,7 @@ export function handleTuiInput(
     };
   }
   if (input === "r") {
-    return { state, command: { kind: "refresh", status: { kind: "success", message: "refreshed" } } };
+    return { state, command: { kind: "refresh", scope: "all", status: { kind: "success", message: "refreshed" } } };
   }
   if (input === "w" || input === "s") {
     return { state: { ...state, mode: "save-workspace", input: options.defaultWorkspaceName } };

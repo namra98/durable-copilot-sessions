@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { SessionListResult } from "../core/manager.js";
 import type { LaunchResult, MemorySearchHit, ResumeOptions, Workspace } from "../core/types.js";
 import { runTui, type TuiInput, type TuiIo, type TuiManager, type TuiOutput } from "./tui.js";
@@ -34,6 +34,8 @@ class FakeManager implements TuiManager {
   readonly createInputs: Array<Parameters<TuiManager["createWorkspace"]>[0]> = [];
   readonly memoryQueries: string[] = [];
   readonly resumedSessions: string[] = [];
+  workspaceReads = 0;
+  snapshotReads = 0;
   failList: boolean;
 
   constructor(failList = false) {
@@ -49,10 +51,12 @@ class FakeManager implements TuiManager {
   }
 
   listWorkspaces(): Workspace[] {
+    this.workspaceReads += 1;
     return [];
   }
 
   listSnapshots(): Workspace[] {
+    this.snapshotReads += 1;
     return [];
   }
 
@@ -180,6 +184,7 @@ describe("runTui", () => {
   it("redraws live search without clearing the whole screen", async () => {
     const io = fakeIo();
     const promise = runTui(new FakeManager(), io);
+    const startupChunks = io.stdout.chunks.length;
 
     io.stdin.emit("data", "/");
     io.stdin.emit("data", "streamliner");
@@ -187,8 +192,12 @@ describe("runTui", () => {
     await promise;
 
     const output = io.stdout.chunks.join("");
+    const searchRedraw = io.stdout.chunks.slice(startupChunks).join("");
     expect(output).not.toContain("\x1b[2J");
     expect(output).toContain("\x1b[H");
+    expect(searchRedraw).not.toContain("\x1b[H");
+    expect(searchRedraw).toContain("\x1b[");
+    expect(searchRedraw).toContain(";1H");
   });
 
   it("filters live search locally without refreshing discovery on each keystroke", async () => {
@@ -205,5 +214,66 @@ describe("runTui", () => {
 
     io.stdin.emit("data", "\u0003");
     await promise;
+  });
+
+  it("refreshes only sessions when cycling filters", async () => {
+    const io = fakeIo();
+    const manager = new FakeManager();
+    const promise = runTui(manager, io);
+
+    expect(manager.workspaceReads).toBe(1);
+    expect(manager.snapshotReads).toBe(1);
+    io.stdin.emit("data", "f");
+    expect(manager.filters).toEqual(["open", "live"]);
+    expect(manager.workspaceReads).toBe(1);
+    expect(manager.snapshotReads).toBe(1);
+    io.stdin.emit("data", "f");
+    io.stdin.emit("data", "f");
+    expect(manager.filters).toEqual(["open", "live", "all"]);
+
+    io.stdin.emit("data", "\u0003");
+    await promise;
+  });
+
+  it("debounces resize renders", async () => {
+    vi.useFakeTimers();
+    try {
+      const io = fakeIo();
+      const promise = runTui(new FakeManager(), io);
+      const chunksAfterStart = io.stdout.chunks.length;
+
+      io.stdout.columns = 101;
+      io.stdout.emit("resize");
+      io.stdout.emit("resize");
+      expect(io.stdout.chunks).toHaveLength(chunksAfterStart);
+
+      await vi.advanceTimersByTimeAsync(16);
+      expect(io.stdout.chunks.length).toBeGreaterThan(chunksAfterStart);
+
+      io.stdin.emit("data", "\u0003");
+      await promise;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("prewarms memory after the first render outside the search keystroke path", async () => {
+    vi.useFakeTimers();
+    try {
+      const io = fakeIo();
+      const manager = new FakeManager();
+      const promise = runTui(manager, io);
+
+      expect(manager.memoryQueries).toEqual([]);
+      await vi.advanceTimersByTimeAsync(499);
+      expect(manager.memoryQueries).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(manager.memoryQueries).toEqual([""]);
+
+      io.stdin.emit("data", "\u0003");
+      await promise;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

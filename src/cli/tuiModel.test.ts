@@ -136,6 +136,13 @@ describe("tuiModel", () => {
     expect(filterVisibleData(data(), "missing").sessions).toHaveLength(0);
   });
 
+  it("caches visible search results for repeated queries against the same data", () => {
+    const source = data();
+    const first = filterVisibleData(source, "memory-aware");
+    const second = filterVisibleData(source, "memory-aware");
+    expect(second).toBe(first);
+  });
+
   it("formats session rows with liveness and child count", () => {
     const row = formatSessionRow(session, true, 120);
     expect(row).toContain("live ");
@@ -236,7 +243,11 @@ describe("tuiModel", () => {
   it("emits commands for key-driven actions", () => {
     const filter = handleTuiInput(state(), data(), "f", { defaultWorkspaceName: "layout" });
     expect(filter.state.filter).toBe("live");
-    expect(filter.command).toEqual({ kind: "refresh", status: { kind: "info", message: "filter set to live" } });
+    expect(filter.command).toEqual({
+      kind: "refresh",
+      scope: "sessions",
+      status: { kind: "info", message: "filter set to live" },
+    });
 
     const save = handleTuiInput(
       state({ mode: "save-workspace", input: "daily" }),
