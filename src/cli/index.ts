@@ -267,7 +267,11 @@ function buildProgram(): Command {
         openBrowser: true,
         port: opts.port ? Number(opts.port) : undefined,
       });
-      console.log(`Dashboard: ${srv.url}  (Ctrl+C to stop)`);
+      if (srv.reused) {
+        console.log(`Port ${srv.port} is already in use; reusing the server at ${srv.url}.`);
+      } else {
+        console.log(`Dashboard: ${srv.url}  (Ctrl+C to stop)`);
+      }
     });
 
   program
@@ -279,7 +283,11 @@ function buildProgram(): Command {
         openBrowser: false,
         port: opts.port ? Number(opts.port) : undefined,
       });
-      console.log(`API listening: ${srv.url}  (Ctrl+C to stop)`);
+      if (srv.reused) {
+        console.log(`Port ${srv.port} is already in use; reusing the server at ${srv.url}.`);
+      } else {
+        console.log(`API listening: ${srv.url}  (Ctrl+C to stop)`);
+      }
     });
 
   program
