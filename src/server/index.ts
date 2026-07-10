@@ -16,7 +16,38 @@ export interface ServeOptions {
 export interface RunningServer {
   port: number;
   url: string;
+  reused: boolean;
   close: () => Promise<void>;
+}
+
+function isAddressInUse(err: unknown): err is NodeJS.ErrnoException {
+  return typeof err === "object" && err !== null && "code" in err && err.code === "EADDRINUSE";
+}
+
+async function isDcsServer(url: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1_000);
+  try {
+    const res = await fetch(`${url}/api/health`, { signal: controller.signal });
+    if (!res.ok) {
+      return false;
+    }
+    const body = (await res.json()) as { ok?: unknown; version?: unknown };
+    return body.ok === true && typeof body.version === "string";
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function maybeOpenBrowser(url: string, enabled: boolean): void {
+  if (!enabled) {
+    return;
+  }
+  void open(url).catch(() => {
+    /* browser launch is best-effort */
+  });
 }
 
 /** Start the local API + web server on 127.0.0.1. */
@@ -31,21 +62,39 @@ export function startServer(opts: ServeOptions = {}): Promise<RunningServer> {
     const server = app.listen(port, "127.0.0.1", () => {
       const url = `http://127.0.0.1:${port}`;
       log.info("server listening", { scope: "server", url });
-      if (opts.openBrowser ?? false) {
-        void open(url).catch(() => {
-          /* browser launch is best-effort */
-        });
-      }
+      maybeOpenBrowser(url, opts.openBrowser ?? false);
       resolve({
         port,
         url,
+        reused: false,
         close: () =>
           new Promise<void>((res) => {
             server.close(() => res());
           }),
       });
     });
-    server.on("error", reject);
+    server.on("error", (err: unknown) => {
+      if (!isAddressInUse(err)) {
+        reject(err);
+        return;
+      }
+
+      const url = `http://127.0.0.1:${port}`;
+      void isDcsServer(url).then((reusable) => {
+        if (!reusable) {
+          reject(err);
+          return;
+        }
+        log.info("server already listening", { scope: "server", url });
+        maybeOpenBrowser(url, opts.openBrowser ?? false);
+        resolve({
+          port,
+          url,
+          reused: true,
+          close: async () => undefined,
+        });
+      }, reject);
+    });
   });
 }
 
