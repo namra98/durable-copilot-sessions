@@ -31,6 +31,11 @@ async fn main() {
 async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let mut args = Args::new(std::env::args().skip(1).collect());
     let command = args.take_command();
+    if let Some(name) = command.as_deref() {
+        if name != "help" && args.has_help_flag() {
+            return print_command_help(name);
+        }
+    }
     match command.as_deref() {
         None | Some("--help") | Some("-h") => {
             print_help();
@@ -1019,6 +1024,10 @@ fn help_command(mut args: Args) -> Result<(), Box<dyn std::error::Error>> {
         print_help();
         return Ok(());
     };
+    print_command_help(&name)
+}
+
+fn print_command_help(name: &str) -> Result<(), Box<dyn std::error::Error>> {
     let Some(command) = COMMAND_HELP.iter().find(|command| command.name == name) else {
         return Err(format!("Unknown command: {name}").into());
     };
@@ -1137,6 +1146,12 @@ impl Args {
                 .position(|value| value.starts_with(&prefix))
                 .map(|index| self.values.remove(index)[prefix.len()..].to_owned())
         }
+    }
+
+    fn has_help_flag(&self) -> bool {
+        self.values
+            .iter()
+            .any(|value| value == "--help" || value == "-h")
     }
 
     fn remaining(self) -> Vec<String> {

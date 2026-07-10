@@ -81,6 +81,14 @@ fn help_lists_the_contract_cli_commands() {
     assert!(ui_stdout.contains("dcs ui [--port n]"));
     assert!(ui_stdout.contains("If the port is already in use"));
 
+    for args in [["ui", "--help"], ["serve", "--help"]] {
+        let output = run_cli(&root, &args);
+        assert!(output.status.success());
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("Usage:"));
+        assert!(stdout.contains(&format!("dcs {}", args[0])));
+    }
+
     fs::remove_dir_all(root).unwrap();
 }
 
