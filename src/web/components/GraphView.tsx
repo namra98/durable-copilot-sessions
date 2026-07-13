@@ -13,9 +13,9 @@ import {
 import type { Edge, Node, NodeTypes } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { ArrowDown, ArrowRight, Plus, RefreshCw } from "lucide-react";
-import type { GraphModel, GraphNode, WindowTarget } from "../../core/types";
-import type { SessionFilter } from "../api/client";
-import * as api from "../api/client";
+import type { GraphModel, GraphNode, WindowTarget } from "../lib/apiTypes";
+import type { SessionFilter } from "../lib/apiClient";
+import * as api from "../lib/apiClient";
 import { layoutGraph, type FlowEdge, type LayoutDirection } from "../lib/graphLayout";
 import { toCssColor } from "../lib/colors";
 import { NodeActionsContext, SessionNode, type NodeActions } from "./SessionNode";
@@ -224,6 +224,7 @@ function GraphCanvas({ initialFilter, windowTarget, push, onShowRelated, onOpenS
           launch,
           color: target.color,
           window: windowTarget,
+          confirmCopilotStateWrite: true,
         });
         setForkTarget(null);
         const launched = result.launch?.ok ? " · launched" : "";

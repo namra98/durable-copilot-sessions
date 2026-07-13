@@ -10,8 +10,8 @@ import {
   RefreshCw,
   TrendingUp,
 } from "lucide-react";
-import * as api from "../api/client";
-import type { StatsReport } from "../api/client";
+import * as api from "../lib/apiClient";
+import type { StatsReport } from "../lib/apiClient";
 import { scaleBars, toCsv } from "../lib/insights";
 import { triggerDownload } from "../lib/download";
 import { absoluteTime, relativeTime } from "../lib/format";

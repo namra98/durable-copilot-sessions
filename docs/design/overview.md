@@ -11,21 +11,25 @@ choices, see the [Architecture Decision Records](decisions/).
 - **Honest fidelity.** Restore as exactly as Windows Terminal allows, and degrade gracefully (and
   visibly) where it doesn't.
 - **Non-invasive.** Read Copilot's state; never write it.
-- **Local & dependency-light.** No cloud, no telemetry, zero native dependencies.
+- **Local & dependency-light.** No cloud, no telemetry, with a Rust backend for fast local discovery
+  and API responses.
 
 ## Layered architecture
 
-`dcs` is one TypeScript codebase with a shared **core** and four delivery layers — CLI, server, web,
-and scheduling — on top.
+`dcs` now uses a Rust backend/core with a Rust CLI and Axum API. The React dashboard remains a
+legacy/dev client of the same `/api` contract, while future TUI work can consume the frozen JSON
+contract directly.
 
 ```
               ┌─────────────── Web UI (React + Vite) ───────────────┐
-              │   session list · one-click resume · save/restore    │
+              │   legacy/dev client of the frozen /api contract      │
               └──────────────────────┬──────────────────────────────┘
                                      │ REST (/api, default :4517)
               ┌──────────────────────▼──────────────────────────────┐
-   CLI (dcs) ─┤              Local API server (Express)              │
+   CLI (dcs) ─┤              Local API server (Rust/Axum)            │
               └──────────────────────┬──────────────────────────────┘
+                                     │
+                              Rust core (dcs-core)
                                      │
      ┌───────────────┬───────────────┼────────────────┬─────────────┐
   discovery       registry        launch            snapshot     scheduling
@@ -42,24 +46,21 @@ and scheduling — on top.
 
 | Module | Responsibility |
 | --- | --- |
-| `core/types.ts` | The cross-layer contract: `DiscoveredSession`, `Workspace`, `WindowSpec`, `TabSpec`, `ManagedSession`, `AppConfig`, `ResumeOptions`, `LaunchResult`. Kept free of runtime imports so both Node and browser code can use it. |
-| `core/paths.ts` | All filesystem locations — Copilot read paths and the owned state dir — overridable via env vars for hermetic tests. |
-| `core/config.ts` | `AppConfig` defaults plus non-throwing load and atomic save. |
-| `core/logger.ts` | JSON-lines logger that appends to `state/logs/api-YYYY-MM-DD.log` and mirrors to the console. Logging never throws. |
-| `core/discovery` | Scans `~/.copilot/session-state/*/workspace.yaml`, classifies liveness from `inuse.<pid>.lock` + PID checks, flags top-level interactive sessions, and best-effort enriches from `session-store.db`. |
-| `core/registry` | Durable file-store of `ManagedSession` and `Workspace` records, one JSON per record, written atomically. |
-| `core/launch` | Pure argv builders + runner for `wt.exe` commands that resume sessions; supports color maps, window grouping, dry-run, and cwd fallback. |
-| `core/snapshot` | Color assignment + window grouping (`grouping.ts`), capture of the live layout into a `Workspace`, restore, and rolling auto-snapshot retention. |
+| `rust/dcs-core/src/model.rs` | The serde API/state contract: discovered sessions, managed sessions, workspaces, launch results, config, memory, stats, logs, fork/new-session payloads. |
+| `rust/dcs-core/src/paths.rs` | All filesystem locations — Copilot read paths and the owned state dir — overridable via env vars for hermetic tests. |
+| `rust/dcs-core/src/registry.rs` | `AppConfig` defaults plus atomic JSON stores for managed sessions, workspaces, snapshots, exports, and imports. |
+| `rust/dcs-core/src/discovery.rs` | Scans `~/.copilot/session-state/*/workspace.yaml`, classifies liveness from `inuse.<pid>.lock` + PID checks, flags top-level interactive sessions, and live-first sorts. |
+| `rust/dcs-core/src/launch.rs` | Pure argv/script builders + runner for `wt.exe` commands that resume sessions; supports color maps, window grouping, dry-run, cwd fallback, and executable preflight. |
+| `rust/dcs-core/src/manager.rs` | Facade that composes discovery, registry, launch, graph, memory, stats, logs/transcripts, fork/new-session, and workspace operations for HTTP/CLI callers. Any operation that writes Copilot-owned state requires explicit confirmation. |
+| `rust/dcs-core/src/memory.rs` | Local SQLite/FTS5 memory extraction, indexing, search, related-session lookup, and recall context. |
+| `rust/dcs-core/src/scheduling.rs` | Windows Scheduled Tasks argument builders, executor seam, and hidden VBScript launcher generation. |
 
 ### Delivery layers
 
-- **`server`** — an Express app exposing the REST API under `/api` (default port `4517`). It also
-  serves the built web bundle in production.
-- **`web`** — a React + Vite dashboard. In dev it runs on port `4516` and proxies `/api` to the API.
-- **`cli`** — the `dcs` command set (`list`, `resume`, `save`, `restore`, `snapshot`,
-  `restore-prompt`, `ui`, `serve`, `new`, `install-tasks`, `uninstall-tasks`).
-- **`scheduling`** — installs/removes Windows Scheduled Tasks: a periodic `dcs snapshot` and a logon
-  `dcs restore-prompt`, with a current-user Startup fallback when ONLOGON registration is denied.
+- **`rust/dcs`** — the Rust `dcs-rs` command set and Axum API under `/api` (default port `4517`).
+  The npm-linked `dcs` command is a thin Node launcher that delegates to `dcs-rs`.
+- **`src/web`** — a React + Vite dashboard retained as a legacy/dev API client. In dev it runs on
+  port `4516` and proxies `/api` to the Rust API.
 
 ## Data flow
 
@@ -67,7 +68,8 @@ and scheduling — on top.
 
 1. Enumerate session folders under `~/.copilot/session-state/`.
 2. For each, parse `workspace.yaml` → `name`, `cwd`, `git_root`, `repository`, `branch`.
-3. Optionally enrich with a `summary` from `~/.copilot/session-store.db` (best-effort `node:sqlite`).
+3. Optionally enrich with stats/memory from `~/.copilot/session-store.db` through read-only SQLite
+   queries.
 4. Classify **liveness** from `inuse.<pid>.lock` files and PID liveness:
    - `live` — a lock exists and its PID is running;
    - `stale` — a lock exists but its PID is dead;
@@ -144,6 +146,10 @@ Copilot's own state, read but never written, lives under `~/.copilot/` (override
 └── session-store.db             # SQLite index (optional summary enrichment)
 ```
 
+The only exceptions are explicit escape-hatch operations such as fork creation or stale-lock
+deletion, and those require `confirmCopilotStateWrite=true` (or the matching CLI flag) before they
+touch `~/.copilot/session-state`.
+
 ## Design notes & limitations
 
 - **Windows Terminal has no live-tab introspection.** There is no API to read a live tab's color,
@@ -152,5 +158,6 @@ Copilot's own state, read but never written, lives under `~/.copilot/` (override
   [ADR 0003](decisions/0003-wt-restore-and-color-fidelity.md).
 - **Resume is cwd-scoped.** Copilot's resume picker is per working directory, so every restored tab
   must `cd` first. See [ADR 0002](decisions/0002-discovery-and-resume-model.md).
-- **Stack rationale.** Why TypeScript + Express + Vite/React, and why zero native deps, is covered in
-  [ADR 0001](decisions/0001-stack-and-architecture.md).
+- **Stack rationale.** The original TypeScript stack is covered in
+  [ADR 0001](decisions/0001-stack-and-architecture.md); the Rust backend migration is covered in
+  [ADR 0004](decisions/0004-rust-backend-migration.md).

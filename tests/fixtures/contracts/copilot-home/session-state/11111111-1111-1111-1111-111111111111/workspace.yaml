@@ -1,0 +1,10 @@
+id: 11111111-1111-1111-1111-111111111111
+cwd: C:\Users\example\repos\durable-copilot-sessions
+git_root: C:\Users\example\repos\durable-copilot-sessions
+repository: namra98/durable-copilot-sessions
+branch: main
+client_name: github/cli
+name: Morning backend session
+user_named: true
+created_at: 2026-07-09T00:00:00.000Z
+updated_at: 2026-07-09T00:05:00.000Z

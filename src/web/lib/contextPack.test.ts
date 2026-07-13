@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Memory, MemoryRecallPack } from "../../core/types";
+import type { Memory, MemoryRecallPack } from "./apiTypes";
 import { buildContextPack, isRecallEmpty } from "./contextPack";
 
 function mem(partial: Partial<Memory> & Pick<Memory, "id" | "kind" | "content">): Memory {

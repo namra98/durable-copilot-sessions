@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SessionView } from "../api/client";
+import type { SessionView } from "./apiClient";
 import {
   applyQuickFilters,
   childrenOf,
