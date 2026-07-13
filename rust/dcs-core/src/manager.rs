@@ -3,6 +3,8 @@ use std::error::Error;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 use uuid::Uuid;
 
@@ -107,6 +109,12 @@ pub struct SessionManager {
     config: AppConfig,
     memory_store: SqliteMemoryStore,
     process_snapshot: Option<ProcessSnapshot>,
+    process_snapshot_cache: Mutex<Option<CachedProcessSnapshot>>,
+}
+
+struct CachedProcessSnapshot {
+    captured_at: Instant,
+    snapshot: ProcessSnapshot,
 }
 
 impl SessionManager {
@@ -125,6 +133,7 @@ impl SessionManager {
             config,
             memory_store,
             process_snapshot: None,
+            process_snapshot_cache: Mutex::new(None),
         })
     }
 
@@ -576,10 +585,7 @@ impl SessionManager {
 
     fn discovered_sessions(&self, filter: SessionFilter) -> Vec<DiscoveredSession> {
         let mut options = DiscoveryOptions::new(&self.paths.copilot_session_state_dir);
-        options.process_snapshot = self
-            .process_snapshot
-            .clone()
-            .unwrap_or_else(get_process_snapshot);
+        options.process_snapshot = self.process_snapshot();
         if matches!(filter, SessionFilter::Live | SessionFilter::Open) {
             options.live_only = true;
         }
@@ -591,6 +597,31 @@ impl SessionManager {
             });
         }
         sessions
+    }
+
+    fn process_snapshot(&self) -> ProcessSnapshot {
+        const SNAPSHOT_TTL: Duration = Duration::from_millis(2500);
+
+        if let Some(snapshot) = &self.process_snapshot {
+            return snapshot.clone();
+        }
+
+        let mut cache = self
+            .process_snapshot_cache
+            .lock()
+            .expect("process snapshot cache mutex poisoned");
+        if let Some(cached) = cache.as_ref() {
+            if cached.captured_at.elapsed() < SNAPSHOT_TTL {
+                return cached.snapshot.clone();
+            }
+        }
+
+        let snapshot = get_process_snapshot();
+        *cache = Some(CachedProcessSnapshot {
+            captured_at: Instant::now(),
+            snapshot: snapshot.clone(),
+        });
+        snapshot
     }
 
     fn all_discovered_sessions(&self) -> Vec<DiscoveredSession> {
