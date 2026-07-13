@@ -8,6 +8,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".
 const exeName = process.platform === "win32" ? "dcs-rs.exe" : "dcs-rs";
 const candidates = [
   process.env.DCS_RS_BIN,
+  path.join(root, "target", "dcs-release", "release", exeName),
   path.join(root, "target", "release", exeName),
   path.join(root, "target", "debug", exeName),
 ].filter((candidate): candidate is string => typeof candidate === "string" && candidate.length > 0);

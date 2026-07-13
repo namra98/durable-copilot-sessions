@@ -15,7 +15,7 @@
     "dev:api": "cargo run -p dcs-rs -- serve",
     "dev:web": "vite",
     "build": "npm run build:rust && npm run build:node && npm run build:web",
-    "build:rust": "cargo build --release -p dcs-rs",
+    "build:rust": "cargo build --release -p dcs-rs --target-dir target/dcs-release",
     "build:node": "tsc -p tsconfig.node.json",
     "build:web": "vite build",
     "typecheck": "tsc -p tsconfig.node.json --noEmit && tsc -p tsconfig.web.json --noEmit",
@@ -32,6 +32,7 @@
     "rust:build": "cargo build --all",
     "rust:check": "npm run rust:fmt && npm run rust:lint && npm run rust:test && npm run rust:build",
     "smoke:launcher": "node dist/cli/rust-bin.js --help",
+    "benchmark:main-vs-rust": "node devtools/benchmark-main-vs-rust.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
