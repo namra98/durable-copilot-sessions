@@ -1,6 +1,6 @@
 use std::fs;
-use std::io::ErrorKind;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::io::{ErrorKind, Read, Write};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
@@ -651,11 +651,21 @@ async fn serve_local_api(
     let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(listener) => listener,
-        Err(error) if error.kind() == ErrorKind::AddrInUse && mode == ServeMode::Ui => {
+        Err(error)
+            if error.kind() == ErrorKind::AddrInUse
+                && mode == ServeMode::Ui
+                && is_dcs_server(addr) =>
+        {
             let url = open_url.unwrap_or_else(|| format!("http://{addr}/restore-prompt"));
             println!("Port {port} is already in use; reusing the server at {url}.");
             open_local_url_after_delay(url);
             return Ok(());
+        }
+        Err(error) if error.kind() == ErrorKind::AddrInUse && mode == ServeMode::Ui => {
+            return Err(format!(
+                "Port {port} is already in use, but it does not look like an existing DCS server. Stop the other process or choose another port."
+            )
+            .into());
         }
         Err(error) if error.kind() == ErrorKind::AddrInUse => {
             return Err(format!(
@@ -672,6 +682,39 @@ async fn serve_local_api(
     }
     println!("API listening: http://{addr}/api  (Ctrl+C to stop)");
     dcs_rs::server::serve_listener(listener, paths).await
+}
+
+fn is_dcs_server(addr: SocketAddr) -> bool {
+    let Ok(mut stream) = TcpStream::connect_timeout(&addr, Duration::from_secs(1)) else {
+        return false;
+    };
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+    let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
+
+    let request = format!("GET /api/health HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n\r\n");
+    if stream.write_all(request.as_bytes()).is_err() {
+        return false;
+    }
+
+    let mut response = String::new();
+    if stream.read_to_string(&mut response).is_err() {
+        return false;
+    }
+
+    let Some((headers, body)) = response.split_once("\r\n\r\n") else {
+        return false;
+    };
+    if !headers.starts_with("HTTP/1.1 200") && !headers.starts_with("HTTP/1.0 200") {
+        return false;
+    }
+
+    let Ok(body) = serde_json::from_str::<serde_json::Value>(body.trim()) else {
+        return false;
+    };
+    body.get("ok").and_then(serde_json::Value::as_bool) == Some(true)
+        && body
+            .get("version")
+            .is_some_and(serde_json::Value::is_string)
 }
 
 fn open_local_url_after_delay(url: String) {

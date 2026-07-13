@@ -1,9 +1,11 @@
 use std::fs;
+use std::io::{ErrorKind, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::thread;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 fn repo_root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -144,6 +146,47 @@ fn serve_reports_friendly_port_conflict() {
     assert!(stderr.contains("dcs ui"));
 
     drop(listener);
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn ui_rejects_occupied_port_that_is_not_dcs_server() {
+    let root = temp_root();
+    let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let port = listener.local_addr().unwrap().port().to_string();
+    let server = thread::spawn(move || {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    let mut buffer = [0; 512];
+                    let _ = stream.read(&mut buffer);
+                    let body = "not dcs";
+                    let response = format!(
+                        "HTTP/1.1 404 Not Found\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                        body.len()
+                    );
+                    let _ = stream.write_all(response.as_bytes());
+                    break;
+                }
+                Err(error)
+                    if error.kind() == ErrorKind::WouldBlock && Instant::now() < deadline =>
+                {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    let output = run_cli(&root, &["ui", "--port", &port]);
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("already in use"));
+    assert!(stderr.contains("does not look like an existing DCS server"));
+
+    server.join().unwrap();
     fs::remove_dir_all(root).unwrap();
 }
 
