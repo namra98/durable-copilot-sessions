@@ -13,7 +13,7 @@ picture.
 
 ## Stack
 
-- **Rust (MSRV 1.80)** for the primary backend/core, CLI, Axum API, scheduling helpers, and memory
+- **Rust (MSRV 1.88)** for the primary backend/core, CLI, Axum API, scheduling helpers, and memory
   index. Unsafe code is forbidden.
 - **TypeScript (ESM, `NodeNext`)** — Node `>=20` for the thin npm launcher and React dashboard.
 - **Axum** local API server (default port **4517**).

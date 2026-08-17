@@ -530,8 +530,8 @@ fn render_restore_prompt(snapshot: Option<&Workspace>) -> String {
 <body>
   <main>
     <h1>Restore your last Copilot session layout?</h1>
-    {}
-    <button id="restore"{}>Restore latest snapshot</button>
+    {summary}
+    <button id="restore"{button_disabled}>Restore latest snapshot</button>
     <p id="status" role="status"></p>
   </main>
   <script>
@@ -558,8 +558,7 @@ fn render_restore_prompt(snapshot: Option<&Workspace>) -> String {
     }});
   </script>
 </body>
-</html>"#,
-        summary, button_disabled
+</html>"#
     )
 }
 

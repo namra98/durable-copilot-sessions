@@ -4,7 +4,7 @@
 > windows and tabs — durable across reboots.
 
 ![Platform](https://img.shields.io/badge/platform-Windows%2011-0078D6)
-![Rust](https://img.shields.io/badge/rust-%3E%3D1.80-B7410E)
+![Rust](https://img.shields.io/badge/rust-%3E%3D1.88-B7410E)
 ![Node](https://img.shields.io/badge/node-%3E%3D20-3C873A)
 ![Stack](https://img.shields.io/badge/stack-Rust%20%C2%B7%20Axum%20%C2%B7%20React-3178C6)
 ![Status](https://img.shields.io/badge/status-alpha-orange)
@@ -93,7 +93,7 @@ child, or jump to related memory straight from a node.
 | --- | --- |
 | **Windows 11** | The tool drives `wt.exe`; it is Windows‑only by design. |
 | **Windows Terminal** | `wt.exe` must be on `PATH` (the default on Windows 11). |
-| **Rust ≥ 1.80** | Builds the Rust `dcs-rs` backend/CLI. |
+| **Rust ≥ 1.88** | Builds the Rust `dcs-rs` backend/CLI. |
 | **Node.js ≥ 20** | Used for npm setup, the thin `dcs` launcher, and the legacy React dashboard. |
 | **GitHub Copilot CLI** | `copilot` must be on `PATH` so restored tabs can run `copilot --resume`. |
 
