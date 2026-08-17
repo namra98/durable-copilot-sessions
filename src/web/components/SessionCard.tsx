@@ -14,7 +14,7 @@ import {
   Sparkles,
   TriangleAlert,
 } from "lucide-react";
-import type { SessionView, SessionPatch } from "../api/client";
+import type { SessionView, SessionPatch } from "../lib/apiClient";
 import { resolveColor } from "../lib/colors";
 import { displayName } from "../lib/sessions";
 import { absoluteTime, relativeTime, shortId } from "../lib/format";

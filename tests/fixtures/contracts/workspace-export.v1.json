@@ -1,0 +1,30 @@
+{
+  "kind": "durable-copilot-sessions/workspaces",
+  "version": 1,
+  "exportedAt": "2026-07-09T00:30:00.000Z",
+  "workspaces": [
+    {
+      "id": "workspace-morning",
+      "name": "morning-layout",
+      "description": "Contract fixture for a managed backend session and one co-located child.",
+      "source": "manual",
+      "createdAt": "2026-07-09T00:20:00.000Z",
+      "updatedAt": "2026-07-09T00:20:00.000Z",
+      "windows": [
+        {
+          "id": "w0",
+          "label": "namra98/durable-copilot-sessions",
+          "tabs": [
+            {
+              "sessionId": "11111111-1111-1111-1111-111111111111",
+              "title": "Morning backend session",
+              "color": "#3B82F6",
+              "cwd": "C:\\Users\\example\\repos\\durable-copilot-sessions",
+              "copilotArgs": ["--allow-all-tools"]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

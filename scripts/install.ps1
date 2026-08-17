@@ -24,18 +24,18 @@ npm install | Out-Null
 Write-Host "==> Building..." -ForegroundColor Cyan
 npm run build | Out-Null
 
-Write-Host "==> Linking 'dcs' globally (npm link)..." -ForegroundColor Cyan
+Write-Host "==> Linking Rust-backed 'dcs' globally (npm link)..." -ForegroundColor Cyan
 npm link | Out-Null
 
 if ($WithTasks) {
   Write-Host "==> Registering Scheduled Tasks (auto-snapshot + logon restore)..." -ForegroundColor Cyan
-  node (Join-Path $root "dist\cli\index.js") install-tasks
+  node (Join-Path $root "dist\cli\rust-bin.js") install-tasks
 }
 
 Write-Host ""
-Write-Host "Done. The 'dcs' command is now available." -ForegroundColor Green
+Write-Host "Done. The Rust-backed 'dcs' command is now available." -ForegroundColor Green
 Write-Host "  dcs doctor          # verify your environment"
-Write-Host "  dcs ui              # open the dashboard"
+Write-Host "  dcs serve           # start the Rust API"
 Write-Host "  dcs list            # list open sessions"
 Write-Host "  dcs install-tasks   # auto-snapshot + restore-on-login (if not already)"
 Write-Host "  .\scripts\tray.ps1  # optional always-on system tray"

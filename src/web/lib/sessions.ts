@@ -4,7 +4,7 @@
  * Keeping these here (rather than inline in components) lets them be unit-tested
  * under the node-only vitest environment without a DOM.
  */
-import type { SessionListResult, SessionView } from "../api/client";
+import type { SessionListResult, SessionView } from "./apiClient";
 
 export interface SessionBuckets {
   open: SessionView[];

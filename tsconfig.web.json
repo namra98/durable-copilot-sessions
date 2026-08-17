@@ -13,5 +13,5 @@
       "@/*": ["src/web/*"]
     }
   },
-  "include": ["src/web", "src/core/types.ts"]
+  "include": ["src/web"]
 }

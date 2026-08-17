@@ -1,5 +1,6 @@
 node_modules/
 dist/
+target/
 *.local
 .env
 .DS_Store
@@ -8,3 +9,4 @@ Thumbs.db
 coverage/
 .vite/
 .paw/
+benchmark-results/

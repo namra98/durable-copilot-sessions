@@ -1,0 +1,12 @@
+{
+  "apiPort": 4517,
+  "webPort": 4516,
+  "snapshotIntervalMinutes": 5,
+  "maxAutoSnapshots": 50,
+  "colorStrategy": "by-repo",
+  "autoOpenBrowser": true,
+  "windowGrouping": "by-repo",
+  "copilotCommand": "copilot",
+  "copilotArgs": [],
+  "restoreOnLogin": "prompt"
+}

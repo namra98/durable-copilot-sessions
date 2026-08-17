@@ -1,0 +1,21 @@
+[package]
+name = "dcs-rs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "dcs-rs"
+path = "src/main.rs"
+
+[dependencies]
+axum.workspace = true
+dcs-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+time.workspace = true
+tokio.workspace = true
+tower.workspace = true
+
+[lints]
+workspace = true

@@ -8,7 +8,7 @@
  * target, ... }`).
  */
 import dagre from "@dagrejs/dagre";
-import type { GraphEdge, GraphModel, GraphNode } from "../../core/types";
+import type { GraphEdge, GraphModel, GraphNode } from "./apiTypes";
 
 /** Dagre layout direction: top-to-bottom or left-to-right. */
 export type LayoutDirection = "TB" | "LR";

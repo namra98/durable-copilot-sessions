@@ -4,7 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import { fileURLToPath } from "node:url";
 
 // The web app lives in src/web and is served by the local API in production.
-// In dev, Vite proxies /api to the Express server (default port 4517).
+// In dev, Vite proxies /api to the Rust server (default port 4517).
 const API_PORT = process.env.DCS_API_PORT ?? "4517";
 
 export default defineConfig({

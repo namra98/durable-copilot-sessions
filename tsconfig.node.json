@@ -6,5 +6,5 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src/core", "src/server", "src/cli", "src/scheduling"]
+  "include": ["src/cli/rust-bin.ts"]
 }
